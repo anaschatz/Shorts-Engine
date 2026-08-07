@@ -12,6 +12,7 @@ from shorts_generator.brand_tail_experiment import (
     verify_decoded_frame_sequences,
     verify_only_brand_tail_axis,
 )
+from shorts_generator.artifact_contracts import transcript_timing_hash
 from shorts_generator.hook_gate_v3 import (
     BF_FEED_STOP_POLICY_VERSION,
     HOOK_GATE_V3_VERSION,
@@ -34,12 +35,18 @@ from shorts_generator.profiles import (
     BF_FEED_STOP_V1,
     BF_NATURAL_TAIL_V6,
     MOTIVATIONAL_PODCAST,
+    MOTIVATIONAL_TENSION_MICRO_V1,
     SPEECH_CLEANLINESS_DECISION_VERSION,
+    SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY,
     render_settings_for_content,
     resolve_profile_bundle,
     selection_settings,
 )
 from shorts_generator.ranker import rank_highlights, select_diverse_highlights
+from shorts_generator.spoken_clarity import (
+    SPOKEN_CLARITY_DECISION_VERSION,
+    evaluate_spoken_clarity_evidence,
+)
 
 
 FIXTURE = (
@@ -112,6 +119,85 @@ def rankable_feed_stop_candidate():
         }
     )
     return evaluated, transcript_for_words(words, duration=12.0)
+
+
+def with_sealed_spoken_clarity(
+    candidate,
+    transcript,
+    *,
+    asr_confidence=0.99,
+    provider_status="ok",
+    provider_identity=None,
+):
+    item = dict(candidate)
+    item["point_exact_quote"] = "stop thinking about yourself"
+    speech_start = item["speech_start_time"]
+    speech_end = item["speech_end_time"]
+    reference_words = [
+        word
+        for segment in transcript["segments"]
+        for word in segment.get("words", [])
+        if word["start"] >= speech_start and word["end"] <= speech_end
+    ]
+    opening_asr_words = [
+        {"word": word["word"], "confidence": asr_confidence}
+        for word in reference_words
+        if word["start"] < speech_start + 2.0
+    ]
+    report = evaluate_spoken_clarity_evidence(
+        source_hash=SHA_A,
+        transcript_timing_hash=transcript_timing_hash(transcript),
+        speech_start=speech_start,
+        speech_end=speech_end,
+        reference_words=reference_words,
+        point_exact_quote=item["point_exact_quote"],
+        opening_asr_words=opening_asr_words,
+        provider_status=provider_status,
+        provider_identity=(
+            dict(SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY)
+            if provider_identity is None
+            else provider_identity
+        ),
+    )
+    counts = report["counts"]
+    opening_asr = report["evidence"]["openingAsr"]
+    item.update(
+        {
+            "spokenClarityReport": report,
+            "spokenClarityStatus": report["status"],
+            "spokenClarityEligible": report["eligible"],
+            "spokenClarityRejectionReasons": report["rejectionReasons"],
+            "spokenClarityReviewReasons": report["reviewReasons"],
+            "spoken_clarity_decision_version": report["decisionVersion"],
+            "spoken_clarity_status": report["status"],
+            "spoken_clarity_eligible": report["eligible"],
+            "spoken_clarity_reject_reasons": report["rejectionReasons"],
+            "spoken_clarity_review_reasons": report["reviewReasons"],
+            "spoken_clarity_deterministic_reasons": report[
+                "deterministicReasons"
+            ],
+            "spoken_clarity_provider_status": report["providerStatus"],
+            "spoken_clarity_adjacent_duplicate_count": counts[
+                "adjacentDuplicates"
+            ],
+            "spoken_clarity_repeated_phrase_count": counts[
+                "repeatedPhraseRestarts"
+            ],
+            "spoken_clarity_searching_pause_count": counts[
+                "searchingInternalPauses"
+            ],
+            "spoken_clarity_opening_asr_mean_confidence": opening_asr[
+                "meanWordConfidence"
+            ],
+            "spoken_clarity_opening_asr_low_ratio": opening_asr[
+                "lowConfidenceWordRatio"
+            ],
+            "spoken_clarity_opening_asr_token_match_ratio": opening_asr[
+                "tokenMatchRatio"
+            ],
+        }
+    )
+    return item
 
 
 class HookGateV3Tests(unittest.TestCase):
@@ -547,6 +633,251 @@ class HookGateV3Tests(unittest.TestCase):
         self.assertIn(
             "speech_cleanliness_decision_version_mismatch",
             stale["rejection_reasons"],
+        )
+
+    def test_20d_feed_stop_ranker_requires_spoken_clarity_evidence(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "spoken_clarity_evidence_missing",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20e_feed_stop_ranker_propagates_spoken_clarity_review(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate = with_sealed_spoken_clarity(
+            candidate,
+            transcript,
+            provider_status="clarity_transcriber_error",
+        )
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "spoken_clarity_provider_not_ok",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20f_feed_stop_ranker_propagates_spoken_clarity_reject(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate = with_sealed_spoken_clarity(
+            candidate,
+            transcript,
+            asr_confidence=0.1,
+        )
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "spoken_clarity_opening_asr_severely_unclear",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20g_feed_stop_ranker_rejects_spoken_clarity_version_drift(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate = with_sealed_spoken_clarity(
+            candidate,
+            transcript,
+        )
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version="future-version",
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "spoken_clarity_decision_version_mismatch",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20h_feed_stop_ranker_accepts_only_exact_spoken_clarity_pass(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate = with_sealed_spoken_clarity(
+            candidate,
+            transcript,
+        )
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+            expected_spoken_clarity_provider_identity=(
+                SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+            ),
+            expected_source_hash=SHA_A,
+        )
+
+        self.assertFalse(ranked["rejected"])
+
+        [wrong_source] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+            expected_spoken_clarity_provider_identity=(
+                SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+            ),
+            expected_source_hash=SHA_B,
+        )
+        self.assertTrue(wrong_source["rejected"])
+        self.assertIn(
+            "spoken_clarity_report_invalid",
+            wrong_source["rejection_reasons"],
+        )
+
+    def test_20i_spoken_clarity_aliases_without_report_are_ineligible(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate.update(
+            {
+                "spoken_clarity_decision_version": (
+                    SPOKEN_CLARITY_DECISION_VERSION
+                ),
+                "spoken_clarity_status": "pass",
+                "spoken_clarity_eligible": True,
+                "spoken_clarity_deterministic_reasons": [],
+            }
+        )
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "spoken_clarity_evidence_missing",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20j_tampered_spoken_clarity_report_is_ineligible(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate = with_sealed_spoken_clarity(candidate, transcript)
+        candidate["spokenClarityReport"] = json.loads(
+            json.dumps(candidate["spokenClarityReport"])
+        )
+        candidate["spokenClarityReport"]["evidence"]["openingAsr"][
+            "tokenMatchRatio"
+        ] = 0.123
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "spoken_clarity_report_invalid",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20k_spoken_clarity_token_match_alias_must_match_report(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate = with_sealed_spoken_clarity(candidate, transcript)
+        candidate["spoken_clarity_opening_asr_token_match_ratio"] = 0.123
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "spoken_clarity_report_alias_mismatch",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20l_untrusted_spoken_clarity_provider_is_ineligible(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate = with_sealed_spoken_clarity(
+            candidate,
+            transcript,
+            provider_identity={
+                **SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY,
+                "openingClarityTranscriber": "arbitrary-provider",
+            },
+        )
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+            expected_spoken_clarity_provider_identity=(
+                SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+            ),
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "spoken_clarity_provider_identity_mismatch",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20m_legacy_ranker_does_not_require_spoken_clarity(self):
+        candidate, words = candidate_for(
+            "If you're nervous, stop thinking about yourself."
+        )
+        transcript = transcript_for_words(words, duration=12.0)
+        [default] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=MOTIVATIONAL_TENSION_MICRO_V1,
+        )
+        [explicit] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=MOTIVATIONAL_TENSION_MICRO_V1,
+            expected_spoken_clarity_version=SPOKEN_CLARITY_DECISION_VERSION,
+        )
+
+        self.assertEqual(default, explicit)
+        self.assertFalse(
+            any(
+                reason.startswith("spoken_clarity_")
+                for reason in explicit["rejection_reasons"]
+            )
         )
 
     def test_21_brand_tail_variant_reuses_encoded_control_prefix(self):

@@ -24,6 +24,11 @@ from .hook_gate_v3 import (
     HOOK_GATE_V3_DECISION_VERSION,
     HOOK_GATE_V3_PROMPT_VERSION,
 )
+from .hook_gate_v4 import (
+    BF_FEED_STOP_V2_POLICY_VERSION,
+    HOOK_GATE_V4_DECISION_VERSION,
+    HOOK_GATE_V4_PROMPT_VERSION,
+)
 from .motivational_closure import (
     CLOSURE_HARD_MAX_SECONDS,
     CLOSURE_HARD_MIN_SECONDS,
@@ -53,12 +58,18 @@ BUDGET_FRIENDLY_CAPTION_STYLE = "budget_friendly_v2"
 MOTIVATIONAL_TENSION_MICRO_V1 = "motivational_tension_micro_v1"
 MOTIVATIONAL_TENSION_MICRO_V2 = "motivational_tension_micro_v2"
 BF_FEED_STOP_V1 = BF_FEED_STOP_POLICY_VERSION
+BF_FEED_STOP_V2 = BF_FEED_STOP_V2_POLICY_VERSION
 BF_EDITORIAL_INSET_V1 = "bf_editorial_inset_v1"
 BF_EDITORIAL_INSET_V2 = "bf_editorial_inset_v2"
+BF_EDITORIAL_INSET_V3 = "bf_editorial_inset_v3"
+BF_EDITORIAL_INSET_V4 = "bf_editorial_inset_v4"
 BF_EDITORIAL_INSET_STYLE = BF_EDITORIAL_INSET_V1
 BF_VIRAL_MICRO_V1 = "bf_viral_micro_v1"
 BF_GROWTH_V2 = "bf_growth_v2"
 BF_FEED_STOP_FORMAT_V1 = "bf_feed_stop_format_v1"
+BF_FEED_STOP_FORMAT_V2 = "bf_feed_stop_format_v2"
+BF_FEED_STOP_FORMAT_V3 = "bf_feed_stop_format_v3"
+BF_FEED_STOP_FORMAT_V4 = "bf_feed_stop_format_v4"
 BF_REFERENCE_TAIL_V2 = "bf_reference_tail_v2"
 BF_SMOOTH_TAIL_V3 = "bf_smooth_tail_v3"
 BF_SMOOTH_TAIL_V4 = "bf_smooth_tail_v4"
@@ -72,6 +83,75 @@ SPEECH_CLEANLINESS_UNCOVERED_REVIEW_COUNT = 3
 SPEECH_CLEANLINESS_INTERNAL_GAP_MIN_SECONDS = 0.24
 SPEECH_CLEANLINESS_WORD_EDGE_GUARD_SECONDS = 0.04
 SPEECH_CLEANLINESS_VAD_EVENT_MIN_SECONDS = 0.08
+# Keep this literal mirror at the profile boundary: importing spoken_clarity
+# here would cycle through artifact_contracts -> profiles during module init.
+# Versioned-profile tests assert that the mirror remains exactly equal to the
+# decision module's exported contract.
+SPOKEN_CLARITY_DECISION_VERSION = "bf-spoken-clarity-v1.2.0"
+SPOKEN_CLARITY_POLICY = {
+    "openingWindowSeconds": 2.0,
+    "openingSignalMaxWords": 8,
+    "openingAnchorMaxWords": 12,
+    "searchingPauseMinSeconds": 0.8,
+    "asrLowConfidenceWordThreshold": 0.65,
+    "asrReviewMeanThreshold": 0.78,
+    "asrReviewLowRatioThreshold": 0.25,
+    "asrRejectMeanThreshold": 0.65,
+    "asrRejectLowRatioThreshold": 0.40,
+    "asrTokenMatchAlgorithm": "token_levenshtein_max_length_v1",
+    "asrTokenMatchReviewThreshold": 0.72,
+    "hookClaimAlgorithm": "conservative_two_part_early_claim_v1",
+    "asrTokenMatchRejectThreshold": None,
+    "lowAsrTokenMatchDisposition": "review",
+    "singleDisfluencyDisposition": "review",
+    "repeatedDisfluencyDisposition": "reject",
+    "singleSearchingPauseDisposition": "review",
+    "repeatedSearchingPauseDisposition": "reject",
+}
+SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY = {
+    "analyzerVersion": "bf-spoken-clarity-analyzer-v1.2.0",
+    "openingClarityTranscriber": "faster-whisper-base-opening-clarity-v1",
+    "model": "base",
+    "localFilesOnly": True,
+    "audioDecoder": "ffmpeg-f32le-v1",
+}
+# DeliveryQuality imports artifact_contracts, so keep the immutable profile
+# mirror here to avoid the same profiles -> artifact_contracts import cycle as
+# SpokenClarity. Versioned-profile tests compare this mirror with the decision
+# module's exported policy.
+DELIVERY_QUALITY_DECISION_VERSION = "bf-delivery-quality-v1.0.0"
+DELIVERY_QUALITY_POLICY = {
+    "decisionVersion": DELIVERY_QUALITY_DECISION_VERSION,
+    "spokenClarityDecisionVersion": SPOKEN_CLARITY_DECISION_VERSION,
+    "pauseMinimumSeconds": 0.25,
+    "longPauseMinimumSeconds": 0.80,
+    "idealWordsPerMinute": [120.0, 195.0],
+    "moderateWordsPerMinute": [90.0, 235.0],
+    "severeWordsPerMinute": [60.0, 285.0],
+    "moderateInternalPauseRatio": 0.28,
+    "severeInternalPauseRatio": 0.45,
+    "moderateRmsDynamicRangeDb": 2.0,
+    "severeRmsDynamicRangeDb": 1.0,
+    "moderateActiveFrameRatio": 0.25,
+    "severeActiveFrameRatio": 0.12,
+    "moderateOverallRmsDbfs": -44.0,
+    "severeOverallRmsDbfs": -52.0,
+    "borderlineStrengthMaximum": 65.0,
+    "veryLowStrengthMaximum": 50.0,
+    "veryLowMinimumCorroboratingCategories": 2,
+    "calmDeliverySingleLowDynamicsDisposition": "pass",
+    "affectInferenceAllowed": False,
+}
+DELIVERY_QUALITY_TRUSTED_PROVIDER_IDENTITY = {
+    "analyzerVersion": "bf-delivery-quality-analyzer-v1.0.0",
+    "decisionVersion": DELIVERY_QUALITY_DECISION_VERSION,
+    "acousticProvider": "ffmpeg-f32le-mono16k-rms-dynamics-v1",
+    "audioDecoder": "ffmpeg-f32le-v1",
+    "sampleRate": 16000,
+    "rmsWindowMilliseconds": 50.0,
+    "audioPolicy": "read_only_source_contiguous_selection",
+    "affectInferenceUsed": False,
+}
 
 # Descriptive aliases make call sites readable while keeping one canonical ID.
 MOTIVATIONAL_TENSION_MICRO = MOTIVATIONAL_TENSION_MICRO_V1
@@ -80,6 +160,13 @@ BF_VIRAL_MICRO_FORMAT = BF_VIRAL_MICRO_V1
 MOTIVATIONAL_MUSIC_REFLECTIVE = "reflective"
 MOTIVATIONAL_MUSIC_DRIVING = "driving"
 MOTIVATIONAL_MUSIC_WARM = "warm"
+DYNAMIC_MUSIC_VERSION = "bf_dynamic_music_v1.0.0"
+VIRAL_MUSIC_CATALOG_VERSION = "bf_viral_music_catalog_v1.0.0"
+VIRAL_MUSIC_CATALOG_CONTENT_HASH = (
+    "1da9ba63494e686aa3f55d3e0edd1175e233a480fd57171f6b770ef280cbf05c"
+)
+SEMANTIC_MUSIC_ROUTER_VERSION = "bf_semantic_music_router_v1.0.0"
+MUSIC_ROTATION_VERSION = "bf_music_rotation_v1.0.0"
 
 _MOTIVATIONAL_MUSIC_TERMS = {
     MOTIVATIONAL_MUSIC_REFLECTIVE: {
@@ -177,6 +264,9 @@ SELECTION_PROFILES: Dict[str, Dict] = {
     # bf_editorial_inset_v2 by the caller/profile bundle.
     BF_FEED_STOP_V1: {
         "content_profile": MOTIVATIONAL_PODCAST,
+        # Operational routing only. This field is intentionally excluded from
+        # the immutable profile contract so the sealed V1 metadata is stable.
+        "local_only": True,
         "preferred_min_seconds": 12.0,
         "preferred_max_seconds": 17.0,
         "strong_min_seconds": 12.0,
@@ -238,6 +328,34 @@ SELECTION_PROFILES: Dict[str, Dict] = {
         "post_source_fade_seconds": POST_SOURCE_FADE_SECONDS,
         "production_approval": False,
     },
+}
+
+# HookGate V4 is a forward-only selection contract.  It deliberately inherits
+# the proven duration, semantic-closure, tail and source-audio boundaries from
+# V1, while replacing only the hook decision with whole-sentence/whole-point
+# semantic evidence.  Keeping a distinct ID preserves every sealed V1 replay.
+SELECTION_PROFILES[BF_FEED_STOP_V2] = {
+    **deepcopy(SELECTION_PROFILES[BF_FEED_STOP_V1]),
+    "hook_gate_prompt_version": HOOK_GATE_V4_PROMPT_VERSION,
+    "hook_gate_decision_version": HOOK_GATE_V4_DECISION_VERSION,
+    "hook_gate_minimum_score": 78.0,
+    "minimum_score": 78.0,
+    "first_word_max_latency_ms": 100.0,
+    "hook_opening_start_tolerance_seconds": 0.10,
+    "opening_unit_preferred_max_seconds": 3.50,
+    "opening_unit_hard_max_seconds": 5.00,
+    "topic_comprehension_max_seconds": 3.50,
+    "opening_sentence_clarity_min": 70.0,
+    "topic_explicitness_min": 65.0,
+    "standalone_comprehension_min": 70.0,
+    "tension_or_relevance_min": 65.0,
+    "opening_point_coherence_min": 72.0,
+    "payoff_resolution_min": 70.0,
+    "single_idea_focus_min": 75.0,
+    "lexical_delivery_strength_min": 55.0,
+    "lexical_delivery_review_min": 65.0,
+    "semantic_confidence_min": 75.0,
+    "generic_motivation_max": 35.0,
 }
 
 
@@ -384,6 +502,24 @@ RENDER_PROFILES: Dict[str, Dict] = {
     },
 }
 
+# The V3 renderer changes only the music-treatment contract.  Layout, grade,
+# captions and the natural-tail behavior remain byte-for-byte inherited from
+# the proven editorial V2 renderer.
+RENDER_PROFILES[BF_EDITORIAL_INSET_V3] = {
+    **deepcopy(RENDER_PROFILES[BF_EDITORIAL_INSET_V2]),
+    "caption_style": BF_EDITORIAL_INSET_V2,
+    "style_version": BF_EDITORIAL_INSET_V3,
+    "music_version": DYNAMIC_MUSIC_VERSION,
+}
+
+# V4 changes only how the licensed music asset and its start offset are
+# selected.  The proven visual, caption, grade, natural-tail and deterministic
+# dynamic-envelope contracts remain inherited from V3.
+RENDER_PROFILES[BF_EDITORIAL_INSET_V4] = {
+    **deepcopy(RENDER_PROFILES[BF_EDITORIAL_INSET_V3]),
+    "style_version": BF_EDITORIAL_INSET_V4,
+}
+
 
 FORMAT_PROFILES: Dict[str, Dict] = {
     BF_VIRAL_MICRO_V1: {
@@ -406,6 +542,72 @@ FORMAT_PROFILES: Dict[str, Dict] = {
         "local_only": True,
         "production_approval": False,
         "rendering_frozen": True,
+    },
+    BF_FEED_STOP_FORMAT_V2: {
+        "content_profile": MOTIVATIONAL_PODCAST,
+        "selection_profile": BF_FEED_STOP_V1,
+        "render_profile": BF_EDITORIAL_INSET_V2,
+        "local_only": True,
+        "production_approval": False,
+        "rendering_frozen": True,
+        # SpokenClarity is a format-layer migration. Keeping it here leaves
+        # BF_FEED_STOP_V1 and BF_FEED_STOP_FORMAT_V1 byte-for-byte verifiable.
+        "spoken_clarity_decision_version": SPOKEN_CLARITY_DECISION_VERSION,
+        "spoken_clarity_policy": deepcopy(SPOKEN_CLARITY_POLICY),
+        "spoken_clarity_provider_identity": deepcopy(
+            SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+        ),
+    },
+    BF_FEED_STOP_FORMAT_V3: {
+        "content_profile": MOTIVATIONAL_PODCAST,
+        "selection_profile": BF_FEED_STOP_V2,
+        "render_profile": BF_EDITORIAL_INSET_V3,
+        "local_only": True,
+        "production_approval": False,
+        "rendering_frozen": True,
+        # V4 owns semantic meaning.  The existing sealed SpokenClarity report
+        # remains authoritative only for audibility, ASR agreement, stutters,
+        # false starts and searching pauses.
+        "spoken_clarity_decision_version": SPOKEN_CLARITY_DECISION_VERSION,
+        "spoken_clarity_policy": deepcopy(SPOKEN_CLARITY_POLICY),
+        "spoken_clarity_provider_identity": deepcopy(
+            SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+        ),
+        "spoken_clarity_semantic_authority": "hook_gate_v4",
+        "delivery_quality_decision_version": (
+            DELIVERY_QUALITY_DECISION_VERSION
+        ),
+        "delivery_quality_policy": deepcopy(DELIVERY_QUALITY_POLICY),
+        "delivery_quality_provider_identity": deepcopy(
+            DELIVERY_QUALITY_TRUSTED_PROVIDER_IDENTITY
+        ),
+        "dynamic_music_version": DYNAMIC_MUSIC_VERSION,
+    },
+    BF_FEED_STOP_FORMAT_V4: {
+        "content_profile": MOTIVATIONAL_PODCAST,
+        "selection_profile": BF_FEED_STOP_V2,
+        "render_profile": BF_EDITORIAL_INSET_V4,
+        "local_only": True,
+        "production_approval": False,
+        "rendering_frozen": True,
+        "spoken_clarity_decision_version": SPOKEN_CLARITY_DECISION_VERSION,
+        "spoken_clarity_policy": deepcopy(SPOKEN_CLARITY_POLICY),
+        "spoken_clarity_provider_identity": deepcopy(
+            SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+        ),
+        "spoken_clarity_semantic_authority": "hook_gate_v4",
+        "delivery_quality_decision_version": DELIVERY_QUALITY_DECISION_VERSION,
+        "delivery_quality_policy": deepcopy(DELIVERY_QUALITY_POLICY),
+        "delivery_quality_provider_identity": deepcopy(
+            DELIVERY_QUALITY_TRUSTED_PROVIDER_IDENTITY
+        ),
+        "dynamic_music_version": DYNAMIC_MUSIC_VERSION,
+        "music_catalog_version": VIRAL_MUSIC_CATALOG_VERSION,
+        "music_catalog_content_hash": VIRAL_MUSIC_CATALOG_CONTENT_HASH,
+        "music_router_version": SEMANTIC_MUSIC_ROUTER_VERSION,
+        "music_rotation_version": MUSIC_ROTATION_VERSION,
+        "music_rotation_window_size": 5,
+        "music_rotation_lookback": 4,
     },
     BF_WINNER_PACKAGING_V1: {
         "content_profile": MOTIVATIONAL_PODCAST,
@@ -487,6 +689,12 @@ def resolve_profile_bundle(
     resolved["local_only"] = bool(
         (format_id and FORMAT_PROFILES[format_id].get("local_only"))
         or (
+            resolved["selection_profile"]
+            and SELECTION_PROFILES[resolved["selection_profile"]].get(
+                "local_only"
+            )
+        )
+        or (
             resolved["render_profile"]
             and RENDER_PROFILES[resolved["render_profile"]].get("local_only")
         )
@@ -499,6 +707,7 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
     resolved = dict(resolved_profiles or {})
     render_id = resolved.get("render_profile")
     selection_id = resolved.get("selection_profile")
+    format_id = resolved.get("format_profile")
     versions: Dict[str, object] = {}
     if render_id in RENDER_PROFILES:
         render_contract = RENDER_PROFILES[render_id]
@@ -540,8 +749,29 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
             versions["natural_tail_policy_version"] = selection_contract[
                 "natural_tail_policy_version"
             ]
-    if resolved.get("format_profile"):
-        versions["format_version"] = resolved["format_profile"]
+    format_contract = FORMAT_PROFILES.get(format_id, {})
+    if format_id:
+        versions["format_version"] = format_id
+    if format_contract.get("spoken_clarity_decision_version"):
+        versions["spoken_clarity_decision_version"] = format_contract[
+            "spoken_clarity_decision_version"
+        ]
+    if format_contract.get("dynamic_music_version"):
+        versions["dynamic_music_version"] = format_contract[
+            "dynamic_music_version"
+        ]
+    for version_key in (
+        "music_catalog_version",
+        "music_catalog_content_hash",
+        "music_router_version",
+        "music_rotation_version",
+    ):
+        if format_contract.get(version_key):
+            versions[version_key] = format_contract[version_key]
+    if format_contract.get("delivery_quality_decision_version"):
+        versions["delivery_quality_decision_version"] = format_contract[
+            "delivery_quality_decision_version"
+        ]
     render_contract = RENDER_PROFILES.get(render_id, {})
     immutable_contract = {
         "format_profile": resolved.get("format_profile"),
@@ -593,6 +823,60 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
             {
                 key: value
                 for key, value in optional_hook_contract.items()
+                if value is not None
+            }
+        )
+        semantic_hook_contract = {
+            "first_word_max_latency_ms": selection_contract.get(
+                "first_word_max_latency_ms"
+            ),
+            "opening_unit_preferred_max_seconds": selection_contract.get(
+                "opening_unit_preferred_max_seconds"
+            ),
+            "opening_unit_hard_max_seconds": selection_contract.get(
+                "opening_unit_hard_max_seconds"
+            ),
+            "topic_comprehension_max_seconds": selection_contract.get(
+                "topic_comprehension_max_seconds"
+            ),
+            "opening_sentence_clarity_min": selection_contract.get(
+                "opening_sentence_clarity_min"
+            ),
+            "topic_explicitness_min": selection_contract.get(
+                "topic_explicitness_min"
+            ),
+            "standalone_comprehension_min": selection_contract.get(
+                "standalone_comprehension_min"
+            ),
+            "tension_or_relevance_min": selection_contract.get(
+                "tension_or_relevance_min"
+            ),
+            "opening_point_coherence_min": selection_contract.get(
+                "opening_point_coherence_min"
+            ),
+            "payoff_resolution_min": selection_contract.get(
+                "payoff_resolution_min"
+            ),
+            "single_idea_focus_min": selection_contract.get(
+                "single_idea_focus_min"
+            ),
+            "lexical_delivery_strength_min": selection_contract.get(
+                "lexical_delivery_strength_min"
+            ),
+            "lexical_delivery_review_min": selection_contract.get(
+                "lexical_delivery_review_min"
+            ),
+            "semantic_confidence_min": selection_contract.get(
+                "semantic_confidence_min"
+            ),
+            "generic_motivation_max": selection_contract.get(
+                "generic_motivation_max"
+            ),
+        }
+        immutable_contract["hook_gate"].update(
+            {
+                key: value
+                for key, value in semantic_hook_contract.items()
                 if value is not None
             }
         )
@@ -663,6 +947,75 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
                 selection_contract.get("production_approval", False)
             ),
         }
+    if format_contract.get("spoken_clarity_decision_version"):
+        immutable_contract["spoken_clarity"] = {
+            "decision_version": format_contract[
+                "spoken_clarity_decision_version"
+            ],
+            "policy": deepcopy(format_contract["spoken_clarity_policy"]),
+            "provider_identity": deepcopy(
+                format_contract["spoken_clarity_provider_identity"]
+            ),
+            "fail_closed": True,
+            "production_approval": bool(
+                format_contract.get("production_approval", False)
+            ),
+        }
+        if format_contract.get("spoken_clarity_semantic_authority"):
+            immutable_contract["spoken_clarity"]["semantic_authority"] = (
+                format_contract["spoken_clarity_semantic_authority"]
+            )
+    if format_contract.get("delivery_quality_decision_version"):
+        immutable_contract["delivery_quality"] = {
+            "decision_version": format_contract[
+                "delivery_quality_decision_version"
+            ],
+            "policy": deepcopy(format_contract["delivery_quality_policy"]),
+            "provider_identity": deepcopy(
+                format_contract["delivery_quality_provider_identity"]
+            ),
+            "source_audio_modified": False,
+            "affect_inference_allowed": False,
+            "fail_closed": True,
+            "production_approval": bool(
+                format_contract.get("production_approval", False)
+            ),
+        }
+    if format_contract.get("dynamic_music_version"):
+        immutable_contract["dynamic_music"] = {
+            "decision_version": format_contract["dynamic_music_version"],
+            "semantic_events": [
+                "hook_end",
+                "payoff_start",
+                "payoff_end",
+                "speech_end",
+            ],
+            "randomized_effects": False,
+            "speech_sidechain_required": True,
+            "production_approval": bool(
+                format_contract.get("production_approval", False)
+            ),
+        }
+    if format_contract.get("music_router_version"):
+        immutable_contract["music_selection"] = {
+            "catalog_version": format_contract["music_catalog_version"],
+            "catalog_content_hash": format_contract[
+                "music_catalog_content_hash"
+            ],
+            "router_version": format_contract["music_router_version"],
+            "rotation_version": format_contract["music_rotation_version"],
+            "rotation_window_size": format_contract[
+                "music_rotation_window_size"
+            ],
+            "rotation_lookback": format_contract["music_rotation_lookback"],
+            "semantic_scope": "complete_selected_point_and_payoff",
+            "first_word_heuristic_allowed": False,
+            "hidden_mutable_history_allowed": False,
+            "catalog_asset_hash_required": True,
+            "production_approval": bool(
+                format_contract.get("production_approval", False)
+            ),
+        }
     if render_contract.get("brand_tail_version"):
         immutable_contract["tail_policy"] = {
             "brand_hold_default_seconds": render_contract.get(
@@ -693,6 +1046,8 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
         }
         if render_id in {
             BF_EDITORIAL_INSET_V2,
+            BF_EDITORIAL_INSET_V3,
+            BF_EDITORIAL_INSET_V4,
             BF_WINNER_LAYOUT_V1,
             BF_WINNER_PACKAGING_V1,
         }:
@@ -745,6 +1100,11 @@ def motivational_music_profile_for_candidate(candidate: Dict) -> str:
         for key in (
             "title",
             "topic",
+            "hook_semantic_topic",
+            "opening_claim_summary",
+            "whole_point_summary",
+            "opening_unit_exact_quote",
+            "payoff_exact_quote",
             "hook_sentence",
             "final_takeaway_sentence",
             "thesis",
@@ -796,6 +1156,8 @@ def render_settings_for_content(
     if render_id in {
         BF_EDITORIAL_INSET_V1,
         BF_EDITORIAL_INSET_V2,
+        BF_EDITORIAL_INSET_V3,
+        BF_EDITORIAL_INSET_V4,
         BF_WINNER_LAYOUT_V1,
         BF_WINNER_PACKAGING_V1,
     }:

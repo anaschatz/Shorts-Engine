@@ -1,3 +1,5 @@
+import argparse
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,19 +18,26 @@ from shorts_generator.artifact_contracts import (
 from shorts_generator.speech_cleanliness import (
     evaluate_speech_cleanliness_evidence,
 )
+from shorts_generator.spoken_clarity import evaluate_spoken_clarity_evidence
 from shorts_generator.pipeline import build_ranking_manifest
 from shorts_generator.profiles import (
     BF_FEED_STOP_FORMAT_V1,
+    BF_FEED_STOP_FORMAT_V2,
+    BF_FEED_STOP_FORMAT_V3,
     BF_GROWTH_V2,
     BF_VIRAL_MICRO_V1,
+    SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY,
     resolve_profile_bundle,
 )
 from shorts_generator.publisher import PublishReceiptStore
 from shorts_generator.replay_capture import (
     verify_replay_capture_dataset,
     verify_replay_capture_label,
+    verify_replay_human_preview_rejection,
     verify_replay_human_rejection,
 )
+from tests.test_replay_capture import passing_preview_provenance_report
+from tests.test_artifact_contracts import feed_stop_v3_candidate
 
 
 def replay_backfill_transcript(
@@ -128,7 +137,326 @@ def attach_clean_speech_report(
     }
 
 
+def attach_clear_spoken_report(
+    candidate_body,
+    source_hash,
+    transcript,
+    *,
+    transcript_timing_hash=None,
+    provider_identity=None,
+):
+    transcript_manifest = build_replay_transcript_manifest(transcript, source_hash)
+    speech_start = candidate_body.get(
+        "speech_start_time",
+        candidate_body["start_time"],
+    )
+    speech_end = candidate_body.get(
+        "speech_end_time",
+        candidate_body["end_time"],
+    )
+    reference_words = [
+        word
+        for segment in transcript["segments"]
+        for word in segment["words"]
+        if speech_start <= float(word["start"]) < speech_end
+        and float(word["end"]) <= speech_end
+    ]
+    opening_words = [
+        {
+            "text": word["word"],
+            "confidence": 0.98,
+        }
+        for word in reference_words
+        if float(word["start"]) < speech_start + 2.0
+    ]
+    report = evaluate_spoken_clarity_evidence(
+        source_hash=source_hash,
+        transcript_timing_hash=(
+            transcript_timing_hash
+            or transcript_manifest["transcriptTimingHash"]
+        ),
+        speech_start=speech_start,
+        speech_end=speech_end,
+        reference_words=reference_words,
+        point_exact_quote=candidate_body["final_takeaway_sentence"],
+        opening_asr_words=opening_words,
+        provider_identity=(
+            provider_identity
+            if provider_identity is not None
+            else SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+        ),
+    )
+    counts = report["counts"]
+    opening_asr = report["evidence"]["openingAsr"]
+    return {
+        **candidate_body,
+        "spokenClarityReport": report,
+        "spokenClarityStatus": report["status"],
+        "spokenClarityEligible": report["eligible"],
+        "spokenClarityRejectionReasons": report["rejectionReasons"],
+        "spokenClarityReviewReasons": report["reviewReasons"],
+        "spoken_clarity_decision_version": report["decisionVersion"],
+        "spoken_clarity_status": report["status"],
+        "spoken_clarity_eligible": report["eligible"],
+        "spoken_clarity_reject_reasons": report["rejectionReasons"],
+        "spoken_clarity_review_reasons": report["reviewReasons"],
+        "spoken_clarity_deterministic_reasons": report[
+            "deterministicReasons"
+        ],
+        "spoken_clarity_provider_status": report["providerStatus"],
+        "spoken_clarity_adjacent_duplicate_count": counts[
+            "adjacentDuplicates"
+        ],
+        "spoken_clarity_repeated_phrase_count": counts[
+            "repeatedPhraseRestarts"
+        ],
+        "spoken_clarity_searching_pause_count": counts[
+            "searchingInternalPauses"
+        ],
+        "spoken_clarity_opening_asr_mean_confidence": opening_asr[
+            "meanWordConfidence"
+        ],
+        "spoken_clarity_opening_asr_low_ratio": opening_asr[
+            "lowConfidenceWordRatio"
+        ],
+        "spoken_clarity_opening_asr_token_match_ratio": opening_asr[
+            "tokenMatchRatio"
+        ],
+    }
+
+
+def jhh_preview_fixture(root):
+    """A preview whose reviewed interval extends beyond ranking candidate 2."""
+
+    source = root / "source.mp4"
+    source.write_bytes(b"jhh-source-bytes")
+    preview = root / "02-guilt-vs-resentment-source-preview.mp4"
+    preview.write_bytes(b"exact-reviewed-jhh-preview")
+    source_hash = file_sha256(str(source))
+    transcript = {
+        "duration": 767.652,
+        "segments": [
+            {
+                "start": 580.92,
+                "end": 603.5,
+                "text": (
+                    "whenever choice resentment guilt choose guilt every time "
+                    "because resentment poison"
+                ),
+                "words": [
+                    {"word": "whenever", "start": 580.92, "end": 581.519},
+                    {"word": "choice", "start": 581.88, "end": 582.12},
+                    {"word": "resentment", "start": 582.54, "end": 583.08},
+                    {"word": "guilt", "start": 583.26, "end": 583.62},
+                    {"word": "choose", "start": 583.62, "end": 583.92},
+                    {"word": "guilt", "start": 584.04, "end": 584.34},
+                    {"word": "every", "start": 584.399, "end": 584.519},
+                    {"word": "time", "start": 584.519, "end": 584.639},
+                    {"word": "because", "start": 601.019, "end": 601.38},
+                    {"word": "resentment", "start": 601.62, "end": 602.1},
+                    {"word": "poison", "start": 602.82, "end": 603.181},
+                ],
+            }
+        ],
+        "_cache": {
+            "schema_version": 3,
+            "source_sha256": source_hash,
+            "model": "fixture",
+            "language": "en",
+        },
+    }
+    candidate_body = {
+        "start_time": 579.17,
+        "end_time": 586.04,
+        "speech_start_time": 580.92,
+        "speech_end_time": 584.639,
+        "candidate_text": (
+            "whenever choice resentment guilt choose guilt every time"
+        ),
+        "content_profile": "motivational_podcast",
+        "selection_profile": "bf_feed_stop_v1",
+        "render_profile": "bf_editorial_inset_v2",
+        "format_profile": "bf_feed_stop_format_v1",
+        "selection_rank": 2,
+        "rejected": True,
+        "rejection_reasons": ["weak_hook"],
+        "source_cut_count": 0,
+    }
+    candidate_value = {
+        **candidate_body,
+        "candidate_hash": candidate_hash(candidate_body, source_hash),
+    }
+    ranking = build_ranking_manifest(
+        "https://www.youtube.com/watch?v=JHh731RsnI4",
+        str(source),
+        "motivational_podcast",
+        [candidate_value],
+        [],
+        profiles=resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V1),
+        source_hash=source_hash,
+        transcript=transcript,
+    )
+    ranking_path = root / "ranking.json"
+    ops.write_json(str(ranking_path), ranking)
+    return source, preview, ranking_path, candidate_value
+
+
+def eight_g_preview_fixture(root):
+    """A reviewed preview ending 40 ms before rank 1's outer interval."""
+
+    source = root / "source.mp4"
+    source.write_bytes(b"8g-source-bytes")
+    preview = root / "01-boundaries-source-preview.mp4"
+    preview.write_bytes(b"exact-reviewed-8g-preview")
+    source_hash = file_sha256(str(source))
+    transcript = {
+        "duration": 381.528,
+        "segments": [
+            {
+                "start": 126.479,
+                "end": 149.52,
+                "text": "we open boundaries and make the point clearly",
+                "words": [
+                    {"word": "we", "start": 126.479, "end": 126.6},
+                    {"word": "open", "start": 128.8, "end": 129.32},
+                    {"word": "boundaries", "start": 130.0, "end": 131.0},
+                    {"word": "and", "start": 137.0, "end": 137.2},
+                    {"word": "make", "start": 138.0, "end": 138.4},
+                    {"word": "the", "start": 140.0, "end": 140.2},
+                    {"word": "point", "start": 144.0, "end": 144.4},
+                    {"word": "clearly", "start": 148.4, "end": 148.96},
+                ],
+            }
+        ],
+        "_cache": {
+            "schema_version": 3,
+            "source_sha256": source_hash,
+            "model": "fixture",
+            "language": "en",
+        },
+    }
+    candidate_body = {
+        "start_time": 126.479,
+        "end_time": 149.52,
+        "speech_start_time": 126.479,
+        "speech_end_time": 148.96,
+        "candidate_text": "we open boundaries and make the point clearly",
+        "content_profile": "motivational_podcast",
+        "selection_profile": "bf_feed_stop_v1",
+        "render_profile": "bf_editorial_inset_v2",
+        "format_profile": "bf_feed_stop_format_v1",
+        "selection_rank": 1,
+        "rejected": True,
+        "rejection_reasons": ["weak_hook"],
+        "source_cut_count": 0,
+    }
+    candidate_value = {
+        **candidate_body,
+        "candidate_hash": candidate_hash(candidate_body, source_hash),
+    }
+    ranking = build_ranking_manifest(
+        "https://www.youtube.com/watch?v=8G2d8oERs-I",
+        str(source),
+        "motivational_podcast",
+        [candidate_value],
+        [],
+        profiles=resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V1),
+        source_hash=source_hash,
+        transcript=transcript,
+    )
+    ranking_path = root / "ranking.json"
+    ops.write_json(str(ranking_path), ranking)
+    return source, preview, ranking_path, candidate_value
+
+
 class BudgetFriendlyOpsTests(unittest.TestCase):
+    def test_approve_candidate_cli_accepts_v3_only_with_exact_bound_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"feed-stop-v3-source")
+            source_hash = file_sha256(str(source))
+            candidate, transcript = feed_stop_v3_candidate(
+                source_hash=source_hash
+            )
+            ranking = build_ranking_manifest(
+                "https://example.test/feed-stop-v3-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [candidate],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_FEED_STOP_FORMAT_V3
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            ranking_path = root / "ranking.json"
+            decision_path = root / "decision.json"
+            evidence = root / "evidence"
+            ops.write_json(str(ranking_path), ranking)
+            args = ops.build_parser().parse_args(
+                [
+                    "approve-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:00:00Z",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(decision_path),
+                ]
+            )
+
+            decision = args.handler(args)
+
+            self.assertEqual(
+                decision["formatProfile"],
+                BF_FEED_STOP_FORMAT_V3,
+            )
+            self.assertEqual(
+                decision["hookGateReport"],
+                ranking["candidates"][0]["hookGateReport"],
+            )
+            self.assertTrue(decision_path.is_file())
+            self.assertEqual(
+                len(list((evidence / "labels").glob("*/*.json"))),
+                1,
+            )
+
+            mismatched_transcript = json.loads(json.dumps(transcript))
+            mismatched_transcript["segments"][0]["words"][0]["start"] = 0.001
+            invalid_ranking = build_ranking_manifest(
+                "https://example.test/feed-stop-v3-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [candidate],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_FEED_STOP_FORMAT_V3
+                ),
+                source_hash=source_hash,
+                transcript=mismatched_transcript,
+            )
+            invalid_path = root / "wrong-transcript.json"
+            ops.write_json(str(invalid_path), invalid_ranking)
+            with self.assertRaisesRegex(
+                ArtifactBindingError,
+                "HookGate V4|another transcript",
+            ):
+                ops.candidate_from_file(
+                    str(invalid_path),
+                    1,
+                    str(source),
+                )
+
     def test_bind_replay_transcript_accepts_only_canonical_youtube_cache_metadata(self):
         transcript = replay_backfill_transcript(
             " ".join(f"word{index}" for index in range(24)),
@@ -554,7 +882,7 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
         self.assertEqual(dataset_count, 1)
         self.assertEqual(label_count, 1)
 
-    def test_approve_candidate_cli_accepts_exact_feed_stop_replay_ranking(self):
+    def test_approve_candidate_cli_rejects_legacy_feed_stop_v1_before_writes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source.mp4"
@@ -565,10 +893,10 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 "end_time": 11.75,
                 "speech_start_time": 0.0,
                 "speech_end_time": 11.5,
-                "title": "Stop seeking approval",
-                "hook_sentence": "Approval is a trap.",
-                "final_takeaway_sentence": "Choose your standard instead.",
-                "candidate_text": "Approval is a trap choose your standard instead",
+                "title": "Protect your peace",
+                "hook_sentence": "Boundaries protect your peace.",
+                "final_takeaway_sentence": "Boundaries protect your peace.",
+                "candidate_text": "Boundaries protect your peace every single day",
                 "content_profile": "motivational_podcast",
                 "selection_profile": "bf_feed_stop_v1",
                 "render_profile": "bf_editorial_inset_v2",
@@ -579,7 +907,7 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 "source_cut_count": 0,
             }
             transcript = replay_backfill_transcript(
-                "Approval is a trap choose your standard instead",
+                "Boundaries protect your peace every single day",
                 source_hash,
             )
             candidate_body = attach_clean_speech_report(
@@ -627,34 +955,162 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 ]
             )
 
-            decision = args.handler(args)
-            dataset_path = next((evidence / "datasets").glob("*.json"))
-            label_path = next((evidence / "labels").glob("*/*.json"))
-            dataset = verify_replay_capture_dataset(
-                ops.read_json(str(dataset_path))
+            with self.assertRaisesRegex(
+                ArtifactBindingError,
+                "legacy replay-only",
+            ):
+                args.handler(args)
+            self.assertFalse(decision_path.exists())
+            self.assertFalse(evidence.exists())
+
+    def test_approve_candidate_cli_accepts_v2_only_with_bound_clarity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"feed-stop-v2-source")
+            source_hash = file_sha256(str(source))
+            transcript = replay_backfill_transcript(
+                "Boundaries protect your peace every single day",
+                source_hash,
             )
-            label = verify_replay_capture_label(
-                ops.read_json(str(label_path)),
-                dataset,
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "speech_start_time": 0.0,
+                "speech_end_time": 11.5,
+                "title": "Protect your peace",
+                "hook_sentence": "Boundaries protect your peace.",
+                "final_takeaway_sentence": "Boundaries protect your peace.",
+                "candidate_text": (
+                    "Boundaries protect your peace every single day"
+                ),
+                "content_profile": "motivational_podcast",
+                "selection_profile": "bf_feed_stop_v1",
+                "render_profile": "bf_editorial_inset_v2",
+                "format_profile": "bf_feed_stop_format_v2",
+                "selection_rank": 1,
+                "rejected": False,
+                "rejection_reasons": [],
+                "source_cut_count": 0,
+            }
+            candidate_body = attach_clean_speech_report(
+                candidate_body,
+                source_hash,
+                transcript,
+            )
+            candidate_body = attach_clear_spoken_report(
+                candidate_body,
+                source_hash,
+                transcript,
+            )
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            ranking = build_ranking_manifest(
+                "https://example.test/feed-stop-v2-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [candidate],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_FEED_STOP_FORMAT_V2
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            ranking_path = root / "ranking.json"
+            decision_path = root / "decision.json"
+            evidence = root / "evidence"
+            ops.write_json(str(ranking_path), ranking)
+            args = ops.build_parser().parse_args(
+                [
+                    "approve-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:00:00Z",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(decision_path),
+                ]
             )
 
+            decision = args.handler(args)
+            speech_only_body = {
+                key: value
+                for key, value in candidate_body.items()
+                if not key.startswith("spokenClarity")
+                and not key.startswith("spoken_clarity_")
+            }
+            invalid_cases = (
+                (
+                    "wrong-transcript",
+                    attach_clear_spoken_report(
+                        speech_only_body,
+                        source_hash,
+                        transcript,
+                        transcript_timing_hash="f" * 64,
+                    ),
+                    "another transcript",
+                ),
+                (
+                    "untrusted-provider",
+                    attach_clear_spoken_report(
+                        speech_only_body,
+                        source_hash,
+                        transcript,
+                        provider_identity={"provider": "arbitrary-test"},
+                    ),
+                    "trusted local provider identity",
+                ),
+            )
+            for name, invalid_body, message in invalid_cases:
+                invalid_candidate = {
+                    **invalid_body,
+                    "candidate_hash": candidate_hash(
+                        invalid_body,
+                        source_hash,
+                    ),
+                }
+                invalid_ranking = build_ranking_manifest(
+                    "https://example.test/feed-stop-v2-source",
+                    str(source),
+                    "motivational_podcast",
+                    [invalid_candidate],
+                    [invalid_candidate],
+                    profiles=resolve_profile_bundle(
+                        format_profile=BF_FEED_STOP_FORMAT_V2
+                    ),
+                    source_hash=source_hash,
+                    transcript=transcript,
+                )
+                invalid_path = root / f"{name}.json"
+                ops.write_json(str(invalid_path), invalid_ranking)
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ArtifactBindingError,
+                    message,
+                ):
+                    ops.candidate_from_file(
+                        str(invalid_path),
+                        1,
+                        str(source),
+                    )
+
+        self.assertEqual(decision["formatProfile"], BF_FEED_STOP_FORMAT_V2)
         self.assertEqual(
-            (
-                decision["contentProfile"],
-                decision["selectionProfile"],
-                decision["renderProfile"],
-                decision["formatProfile"],
-            ),
-            (
-                "motivational_podcast",
-                "bf_feed_stop_v1",
-                "bf_editorial_inset_v2",
-                "bf_feed_stop_format_v1",
-            ),
+            decision["candidate"]["spokenClarityReport"][
+                "transcriptTimingHash"
+            ],
+            ranking["replayTranscriptManifest"]["transcriptTimingHash"],
         )
-        self.assertEqual(label["candidateDecision"], decision)
-        self.assertEqual(label["labelSemantics"], "explicit_human_approval")
-        self.assertEqual(dataset["rankingManifestHash"], ranking["contentHash"])
 
     def test_reject_candidate_cli_archives_engine_rejected_candidate_idempotently(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -936,7 +1392,7 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
         )
         self.assertEqual(rejection["artifactType"], "BudgetFriendlyReplayHumanRejectionV1")
 
-    def test_reject_candidate_cli_fails_closed_before_writing_evidence(self):
+    def test_reject_candidate_cli_accepts_historical_feed_stop_without_report(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source.mp4"
@@ -1001,14 +1457,363 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 ]
             )
 
+            receipt = args.handler(args)
+            dataset = verify_replay_capture_dataset(
+                ops.read_json(receipt["datasetPath"])
+            )
+            rejection = verify_replay_human_rejection(
+                ops.read_json(receipt["rejectionPath"]),
+                dataset,
+            )
+
+            self.assertTrue(evidence.exists())
+            self.assertTrue(receipt_path.exists())
+            self.assertEqual(rejection["candidateHash"], candidate["candidate_hash"])
+            self.assertNotIn("evidenceRefs", rejection)
+
+    def test_reject_candidate_cli_fails_closed_for_present_invalid_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"feed-stop-invalid-audio-evidence")
+            source_hash = file_sha256(str(source))
+            text = "Approval is a trap choose your own standard instead"
+            transcript = replay_backfill_transcript(text, source_hash)
+            candidate_body = attach_clean_speech_report(
+                {
+                    "start_time": 0.0,
+                    "end_time": 11.75,
+                    "speech_start_time": 0.0,
+                    "speech_end_time": 11.5,
+                    "candidate_text": text,
+                    "content_profile": "motivational_podcast",
+                    "selection_profile": "bf_feed_stop_v1",
+                    "render_profile": "bf_editorial_inset_v2",
+                    "format_profile": "bf_feed_stop_format_v1",
+                    "selection_rank": 1,
+                    "rejected": True,
+                    "rejection_reasons": ["weak_hook"],
+                    "source_cut_count": 0,
+                },
+                source_hash,
+                transcript,
+            )
+            candidate_body["speechCleanlinessReport"] = {
+                **candidate_body["speechCleanlinessReport"],
+                "providerStatus": "tampered",
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            ranking = build_ranking_manifest(
+                "https://example.test/feed-stop-invalid-evidence",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_FEED_STOP_FORMAT_V1
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            ranking_path = root / "ranking.json"
+            evidence = root / "evidence"
+            receipt_path = root / "receipt.json"
+            ops.write_json(str(ranking_path), ranking)
+            args = ops.build_parser().parse_args(
+                [
+                    "reject-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:00:00Z",
+                    "--reason-code",
+                    "weak_hook",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(receipt_path),
+                ]
+            )
+
             with self.assertRaisesRegex(
                 ArtifactBindingError,
-                "lacks a speech-cleanliness report",
+                "contentHash does not match",
             ):
                 args.handler(args)
 
             self.assertFalse(evidence.exists())
             self.assertFalse(receipt_path.exists())
+
+    def test_reject_preview_archives_exact_jhh_interval_without_forging_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, preview, ranking_path, candidate_value = jhh_preview_fixture(root)
+            evidence = root / "evidence"
+            receipt_path = root / "preview-rejection-receipt.json"
+            args = ops.build_parser().parse_args(
+                [
+                    "reject-preview",
+                    "--ranking",
+                    str(ranking_path),
+                    "--source",
+                    str(source),
+                    "--preview",
+                    str(preview),
+                    "--start-ms",
+                    "580920",
+                    "--end-ms",
+                    "603500",
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:30:00Z",
+                    "--reason-code",
+                    "unclear_hook,unintelligible_speech",
+                    "--notes",
+                    "The exact preview has an unintelligible opening.",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(receipt_path),
+                ]
+            )
+            provenance = passing_preview_provenance_report(
+                file_sha256(str(source)),
+                file_sha256(str(preview)),
+                580920,
+                603500,
+            )
+
+            with patch.object(
+                ops,
+                "_probe_review_media",
+                return_value=(22589, "mp4"),
+            ), patch.object(
+                ops,
+                "analyze_preview_source_provenance",
+                return_value=provenance,
+            ) as analyzer:
+                first = args.handler(args)
+                second = args.handler(args)
+
+            dataset = verify_replay_capture_dataset(
+                ops.read_json(first["datasetPath"])
+            )
+            rejection = verify_replay_human_preview_rejection(
+                ops.read_json(first["rejectionPath"]),
+                dataset,
+                review_media_path=first["reviewMediaPath"],
+            )
+
+            self.assertEqual(first, second)
+            self.assertEqual(analyzer.call_count, 2)
+            self.assertEqual(
+                analyzer.call_args_list[0].args,
+                (
+                    str(source.resolve()),
+                    str(preview.resolve()),
+                    file_sha256(str(source)),
+                    file_sha256(str(preview)),
+                    580920,
+                    603500,
+                ),
+            )
+            self.assertEqual(
+                first["previewSourceProvenanceHash"],
+                provenance["contentHash"],
+            )
+            self.assertEqual(
+                first["artifactType"],
+                "BudgetFriendlyReplayHumanPreviewRejectionReceiptV1",
+            )
+            self.assertEqual(
+                rejection["sourceIntervalMs"],
+                {"startMs": 580920, "endMs": 603500},
+            )
+            self.assertEqual(
+                rejection["reviewMedia"]["sha256"],
+                file_sha256(str(preview)),
+            )
+            self.assertEqual(
+                rejection["reasonCodes"],
+                ["unclear_hook", "unintelligible_speech"],
+            )
+            self.assertNotIn("candidateHash", rejection)
+            self.assertNotEqual(
+                rejection["sourceIntervalMs"]["endMs"],
+                round(candidate_value["speech_end_time"] * 1000),
+            )
+            self.assertFalse((evidence / "labels").exists())
+            self.assertTrue(Path(first["reviewMediaPath"]).is_file())
+
+    def test_reject_preview_preserves_8g_file_boundary_not_candidate_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, preview, ranking_path, candidate_value = eight_g_preview_fixture(
+                root
+            )
+            evidence = root / "evidence"
+            receipt_path = root / "preview-rejection-receipt.json"
+            args = ops.build_parser().parse_args(
+                [
+                    "reject-preview",
+                    "--ranking",
+                    str(ranking_path),
+                    "--source",
+                    str(source),
+                    "--preview",
+                    str(preview),
+                    "--start-ms",
+                    "126479",
+                    "--end-ms",
+                    "149480",
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:31:00Z",
+                    "--reason-code",
+                    "unclear_hook,unclear_point",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(receipt_path),
+                ]
+            )
+            provenance = passing_preview_provenance_report(
+                file_sha256(str(source)),
+                file_sha256(str(preview)),
+                126479,
+                149480,
+            )
+
+            with patch.object(
+                ops,
+                "_probe_review_media",
+                return_value=(23023, "mp4"),
+            ), patch.object(
+                ops,
+                "analyze_preview_source_provenance",
+                return_value=provenance,
+            ):
+                receipt = args.handler(args)
+            dataset = verify_replay_capture_dataset(
+                ops.read_json(receipt["datasetPath"])
+            )
+            rejection = verify_replay_human_preview_rejection(
+                ops.read_json(receipt["rejectionPath"]),
+                dataset,
+                review_media_path=receipt["reviewMediaPath"],
+            )
+
+        self.assertEqual(
+            rejection["sourceIntervalMs"],
+            {"startMs": 126479, "endMs": 149480},
+        )
+        self.assertNotEqual(
+            rejection["sourceIntervalMs"]["endMs"],
+            round(candidate_value["end_time"] * 1000),
+        )
+        self.assertNotIn("candidateHash", rejection)
+
+    def test_reject_preview_collision_and_bad_duration_precede_archive_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, preview, ranking_path, _ = jhh_preview_fixture(root)
+            evidence = root / "evidence"
+            receipt_path = root / "preview-rejection-receipt.json"
+            args = ops.build_parser().parse_args(
+                [
+                    "reject-preview",
+                    "--ranking",
+                    str(ranking_path),
+                    "--source",
+                    str(source),
+                    "--preview",
+                    str(preview),
+                    "--start-ms",
+                    "580920",
+                    "--end-ms",
+                    "603500",
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:30:00Z",
+                    "--reason-code",
+                    "unclear_hook",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(receipt_path),
+                ]
+            )
+            collision = {
+                "schemaVersion": 1,
+                "artifactType": (
+                    "BudgetFriendlyReplayHumanPreviewRejectionReceiptV1"
+                ),
+                "datasetHash": "a" * 64,
+                "rejectionHash": "b" * 64,
+                "reviewMediaHash": "c" * 64,
+                "datasetPath": "/collision/dataset.json",
+                "rejectionPath": "/collision/rejection.json",
+                "reviewMediaPath": "/collision/review.mp4",
+                "datasetCreated": False,
+                "rejectionCreated": False,
+                "reviewMediaCreated": False,
+            }
+            ops.write_json(str(receipt_path), collision)
+            provenance = passing_preview_provenance_report(
+                file_sha256(str(source)),
+                file_sha256(str(preview)),
+                580920,
+                603500,
+            )
+
+            with patch.object(
+                ops,
+                "_probe_review_media",
+                return_value=(22589, "mp4"),
+            ), patch.object(
+                ops,
+                "analyze_preview_source_provenance",
+                return_value=provenance,
+            ), patch.object(ops, "archive_rejected_preview") as archive, self.assertRaisesRegex(
+                ArtifactBindingError,
+                "immutable preview rejection receipt collision",
+            ):
+                args.handler(args)
+            archive.assert_not_called()
+            self.assertFalse(evidence.exists())
+
+            receipt_path.unlink()
+            with patch.object(
+                ops,
+                "_probe_review_media",
+                return_value=(21000, "mp4"),
+            ), patch.object(ops, "archive_rejected_preview") as archive, self.assertRaisesRegex(
+                ArtifactBindingError,
+                "does not match the exact source interval",
+            ):
+                args.handler(args)
+            archive.assert_not_called()
+            self.assertFalse(evidence.exists())
+
+    def test_reject_preview_uses_integer_millisecond_contract(self):
+        self.assertEqual(ops._nonnegative_milliseconds("580920"), 580920)
+        for value in ("580.920", "-1", "1e3", ""):
+            with self.subTest(value=value), self.assertRaises(
+                argparse.ArgumentTypeError
+            ):
+                ops._nonnegative_milliseconds(value)
 
     def test_rejection_candidate_resolution_rejects_stale_provenance(self):
         with tempfile.TemporaryDirectory() as directory:

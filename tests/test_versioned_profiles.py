@@ -7,11 +7,23 @@ from unittest.mock import patch
 import main as cli
 
 from shorts_generator.artifact_contracts import verify_seal
+from shorts_generator.delivery_quality import (
+    DELIVERY_QUALITY_ACOUSTIC_PROVIDER,
+    DELIVERY_QUALITY_ANALYZER_VERSION,
+    DELIVERY_QUALITY_DECISION_VERSION,
+    DELIVERY_QUALITY_POLICY,
+    DELIVERY_QUALITY_SAMPLE_RATE,
+)
 from shorts_generator.pipeline import build_ranking_manifest, generate_shorts
 from shorts_generator.profiles import (
     BF_EDITORIAL_INSET_V1,
     BF_EDITORIAL_INSET_V2,
+    BF_EDITORIAL_INSET_V4,
     BF_FEED_STOP_FORMAT_V1,
+    BF_FEED_STOP_FORMAT_V2,
+    BF_FEED_STOP_FORMAT_V3,
+    BF_FEED_STOP_FORMAT_V4,
+    BF_FEED_STOP_V1,
     BF_GROWTH_V2,
     BF_NATURAL_TAIL_V6,
     BF_VIRAL_MICRO_V1,
@@ -19,11 +31,31 @@ from shorts_generator.profiles import (
     MOTIVATIONAL_PODCAST,
     MOTIVATIONAL_TENSION_MICRO_V1,
     MOTIVATIONAL_TENSION_MICRO_V2,
+    DELIVERY_QUALITY_DECISION_VERSION as PROFILE_DELIVERY_QUALITY_VERSION,
+    DELIVERY_QUALITY_POLICY as PROFILE_DELIVERY_QUALITY_POLICY,
+    DELIVERY_QUALITY_TRUSTED_PROVIDER_IDENTITY,
     SPEECH_CLEANLINESS_DECISION_VERSION,
+    MUSIC_ROTATION_VERSION,
+    SEMANTIC_MUSIC_ROUTER_VERSION,
+    VIRAL_MUSIC_CATALOG_VERSION,
+    VIRAL_MUSIC_CATALOG_CONTENT_HASH,
+    SPOKEN_CLARITY_DECISION_VERSION as PROFILE_SPOKEN_CLARITY_VERSION,
+    SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY,
+    motivational_music_profile_for_candidate,
     profile_manifest_metadata,
     render_settings_for_content,
     resolve_profile_bundle,
     selection_settings,
+)
+from shorts_generator.spoken_clarity import (
+    SPOKEN_CLARITY_DECISION_VERSION,
+    SPOKEN_CLARITY_POLICY,
+)
+from shorts_generator.music_router import (
+    MUSIC_CATALOG_CONTENT_HASH,
+    MUSIC_CATALOG_VERSION,
+    MUSIC_ROTATION_POLICY_VERSION,
+    MUSIC_ROUTER_DECISION_VERSION,
 )
 from shorts_generator.motivational_closure import (
     NATURAL_TAIL_POLICY_VERSION,
@@ -39,6 +71,316 @@ from shorts_generator.hook_gate import (
 
 
 class VersionedProfileTests(unittest.TestCase):
+    def test_feed_stop_v4_freezes_semantic_music_router_contract(self):
+        resolved = resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V4)
+        metadata = profile_manifest_metadata(resolved)
+
+        self.assertEqual(resolved["render_profile"], BF_EDITORIAL_INSET_V4)
+        self.assertEqual(VIRAL_MUSIC_CATALOG_VERSION, MUSIC_CATALOG_VERSION)
+        self.assertEqual(
+            VIRAL_MUSIC_CATALOG_CONTENT_HASH,
+            MUSIC_CATALOG_CONTENT_HASH,
+        )
+        self.assertEqual(
+            SEMANTIC_MUSIC_ROUTER_VERSION,
+            MUSIC_ROUTER_DECISION_VERSION,
+        )
+        self.assertEqual(MUSIC_ROTATION_VERSION, MUSIC_ROTATION_POLICY_VERSION)
+        self.assertEqual(
+            metadata["versions"]["music_catalog_version"],
+            VIRAL_MUSIC_CATALOG_VERSION,
+        )
+        self.assertEqual(
+            metadata["versions"]["music_catalog_content_hash"],
+            VIRAL_MUSIC_CATALOG_CONTENT_HASH,
+        )
+        self.assertEqual(
+            metadata["versions"]["music_router_version"],
+            SEMANTIC_MUSIC_ROUTER_VERSION,
+        )
+        self.assertEqual(
+            metadata["versions"]["music_rotation_version"],
+            MUSIC_ROTATION_VERSION,
+        )
+        self.assertEqual(
+            metadata["contract"]["music_selection"],
+            {
+                "catalog_version": VIRAL_MUSIC_CATALOG_VERSION,
+                "catalog_content_hash": VIRAL_MUSIC_CATALOG_CONTENT_HASH,
+                "router_version": SEMANTIC_MUSIC_ROUTER_VERSION,
+                "rotation_version": MUSIC_ROTATION_VERSION,
+                "rotation_window_size": 5,
+                "rotation_lookback": 4,
+                "semantic_scope": "complete_selected_point_and_payoff",
+                "first_word_heuristic_allowed": False,
+                "hidden_mutable_history_allowed": False,
+                "catalog_asset_hash_required": True,
+                "production_approval": False,
+            },
+        )
+        self.assertNotIn(
+            "music_selection",
+            profile_manifest_metadata(
+                resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V3)
+            )["contract"],
+        )
+        self.assertEqual(
+            metadata["contract_sha256"],
+            "5488b9a267c5d345a8b2f025230a6fa94e1dadc7fa3572c3ff1b57db49eb74fc",
+        )
+
+    def test_v4_whole_point_semantics_select_the_music_family(self):
+        self.assertEqual(
+            motivational_music_profile_for_candidate(
+                {
+                    "hook_semantic_topic": "confidence and discipline",
+                    "whole_point_summary": (
+                        "focus on the goal and do the work"
+                    ),
+                }
+            ),
+            "driving",
+        )
+        self.assertEqual(
+            motivational_music_profile_for_candidate(
+                {
+                    "opening_claim_summary": (
+                        "choose kindness in a relationship"
+                    ),
+                    "payoff_exact_quote": "love brings peace together",
+                }
+            ),
+            "warm",
+        )
+
+    def test_feed_stop_v3_freezes_exact_delivery_quality_contract(self):
+        expected_policy = {
+            "decisionVersion": "bf-delivery-quality-v1.0.0",
+            "spokenClarityDecisionVersion": "bf-spoken-clarity-v1.2.0",
+            "pauseMinimumSeconds": 0.25,
+            "longPauseMinimumSeconds": 0.80,
+            "idealWordsPerMinute": [120.0, 195.0],
+            "moderateWordsPerMinute": [90.0, 235.0],
+            "severeWordsPerMinute": [60.0, 285.0],
+            "moderateInternalPauseRatio": 0.28,
+            "severeInternalPauseRatio": 0.45,
+            "moderateRmsDynamicRangeDb": 2.0,
+            "severeRmsDynamicRangeDb": 1.0,
+            "moderateActiveFrameRatio": 0.25,
+            "severeActiveFrameRatio": 0.12,
+            "moderateOverallRmsDbfs": -44.0,
+            "severeOverallRmsDbfs": -52.0,
+            "borderlineStrengthMaximum": 65.0,
+            "veryLowStrengthMaximum": 50.0,
+            "veryLowMinimumCorroboratingCategories": 2,
+            "calmDeliverySingleLowDynamicsDisposition": "pass",
+            "affectInferenceAllowed": False,
+        }
+        expected_provider = {
+            "analyzerVersion": "bf-delivery-quality-analyzer-v1.0.0",
+            "decisionVersion": "bf-delivery-quality-v1.0.0",
+            "acousticProvider": "ffmpeg-f32le-mono16k-rms-dynamics-v1",
+            "audioDecoder": "ffmpeg-f32le-v1",
+            "sampleRate": 16000,
+            "rmsWindowMilliseconds": 50.0,
+            "audioPolicy": "read_only_source_contiguous_selection",
+            "affectInferenceUsed": False,
+        }
+        resolved = resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V3)
+        settings = selection_settings(resolved["selection_profile"])
+        metadata = profile_manifest_metadata(resolved)
+
+        self.assertEqual(
+            DELIVERY_QUALITY_DECISION_VERSION,
+            "bf-delivery-quality-v1.0.0",
+        )
+        self.assertEqual(
+            PROFILE_DELIVERY_QUALITY_VERSION,
+            DELIVERY_QUALITY_DECISION_VERSION,
+        )
+        self.assertEqual(DELIVERY_QUALITY_POLICY, expected_policy)
+        self.assertEqual(PROFILE_DELIVERY_QUALITY_POLICY, expected_policy)
+        self.assertEqual(
+            DELIVERY_QUALITY_TRUSTED_PROVIDER_IDENTITY,
+            expected_provider,
+        )
+        self.assertEqual(
+            DELIVERY_QUALITY_ANALYZER_VERSION,
+            expected_provider["analyzerVersion"],
+        )
+        self.assertEqual(
+            DELIVERY_QUALITY_ACOUSTIC_PROVIDER,
+            expected_provider["acousticProvider"],
+        )
+        self.assertEqual(
+            DELIVERY_QUALITY_SAMPLE_RATE,
+            expected_provider["sampleRate"],
+        )
+        self.assertNotIn("delivery_quality_decision_version", settings)
+        self.assertNotIn("delivery_quality_policy", settings)
+        self.assertEqual(
+            metadata["versions"]["delivery_quality_decision_version"],
+            DELIVERY_QUALITY_DECISION_VERSION,
+        )
+        self.assertEqual(
+            metadata["contract"]["delivery_quality"],
+            {
+                "decision_version": DELIVERY_QUALITY_DECISION_VERSION,
+                "policy": expected_policy,
+                "provider_identity": expected_provider,
+                "source_audio_modified": False,
+                "affect_inference_allowed": False,
+                "fail_closed": True,
+                "production_approval": False,
+            },
+        )
+
+    def test_feed_stop_freezes_fail_closed_spoken_clarity_contract(self):
+        resolved = resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V2)
+        settings = selection_settings(resolved["selection_profile"])
+        metadata = profile_manifest_metadata(resolved)
+
+        self.assertEqual(
+            PROFILE_SPOKEN_CLARITY_VERSION,
+            SPOKEN_CLARITY_DECISION_VERSION,
+        )
+        self.assertEqual(
+            metadata["versions"]["spoken_clarity_decision_version"],
+            PROFILE_SPOKEN_CLARITY_VERSION,
+        )
+        self.assertNotIn("spoken_clarity_decision_version", settings)
+        self.assertNotIn("spoken_clarity_policy", settings)
+        self.assertEqual(
+            metadata["contract"]["spoken_clarity"]["policy"][
+                "asrTokenMatchReviewThreshold"
+            ],
+            0.72,
+        )
+        self.assertIsNone(
+            metadata["contract"]["spoken_clarity"]["policy"][
+                "asrTokenMatchRejectThreshold"
+            ]
+        )
+        self.assertEqual(
+            metadata["contract"]["spoken_clarity"]["policy"][
+                "lowAsrTokenMatchDisposition"
+            ],
+            "review",
+        )
+        self.assertEqual(
+            metadata["versions"]["spoken_clarity_decision_version"],
+            SPOKEN_CLARITY_DECISION_VERSION,
+        )
+        self.assertEqual(
+            metadata["contract"]["spoken_clarity"],
+            {
+                "decision_version": SPOKEN_CLARITY_DECISION_VERSION,
+                "policy": SPOKEN_CLARITY_POLICY,
+                "provider_identity": (
+                    SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+                ),
+                "fail_closed": True,
+                "production_approval": False,
+            },
+        )
+
+    def test_feed_stop_v1_metadata_remains_exact_and_has_no_clarity_gate(self):
+        metadata = profile_manifest_metadata(
+            resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V1)
+        )
+
+        self.assertEqual(
+            metadata["contract_sha256"],
+            "06ed8be7c0ea5c07a964a97d437b2a0a89f4ff5569555b4694856810aec9d498",
+        )
+        self.assertNotIn("spoken_clarity", metadata["contract"])
+        self.assertNotIn(
+            "spoken_clarity_decision_version",
+            metadata["versions"],
+        )
+
+    def test_feed_stop_v2_metadata_hash_remains_exact_without_delivery_gate(self):
+        metadata = profile_manifest_metadata(
+            resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V2)
+        )
+
+        self.assertEqual(
+            metadata["contract_sha256"],
+            "6da73250643936cb9b2ac72728ab012918095f5c3503e47d7312e8b9d32749c8",
+        )
+        self.assertNotIn("delivery_quality", metadata["contract"])
+        self.assertNotIn(
+            "delivery_quality_decision_version",
+            metadata["versions"],
+        )
+        self.assertNotIn("dynamic_music", metadata["contract"])
+        self.assertNotIn("dynamic_music_version", metadata["versions"])
+
+    def test_feed_stop_selection_cannot_bypass_local_only_routing(self):
+        resolved = resolve_profile_bundle(selection_profile=BF_FEED_STOP_V1)
+
+        self.assertTrue(resolved["local_only"])
+        with patch("shorts_generator.pipeline._run_api") as run_api:
+            with self.assertRaisesRegex(ValueError, "local-only"):
+                generate_shorts(
+                    "https://example.test/source",
+                    mode="api",
+                    selection_profile=BF_FEED_STOP_V1,
+                )
+        run_api.assert_not_called()
+
+    def test_new_feed_stop_generation_defaults_to_v2_and_rejects_explicit_v1(self):
+        with patch(
+            "shorts_generator.pipeline._run_local",
+            return_value={"mode": "local"},
+        ) as run_local, patch(
+            "shorts_generator.pipeline._persist_performance_report",
+            return_value=None,
+        ):
+            generate_shorts(
+                "https://example.test/source",
+                num_clips=1,
+                mode="local",
+                selection_profile=BF_FEED_STOP_V1,
+                select_only=True,
+            )
+
+            resolved = run_local.call_args.args[5]
+            self.assertEqual(
+                resolved["format_profile"],
+                BF_FEED_STOP_FORMAT_V2,
+            )
+            with self.assertRaisesRegex(ValueError, "legacy replay-only"):
+                generate_shorts(
+                    "https://example.test/source",
+                    num_clips=1,
+                    mode="local",
+                    format_profile=BF_FEED_STOP_FORMAT_V1,
+                    select_only=True,
+                )
+
+        run_local.assert_called_once()
+
+    def test_hook_v4_generation_defaults_to_semantic_music_format_v4(self):
+        with patch(
+            "shorts_generator.pipeline._run_local",
+            return_value={"mode": "local"},
+        ) as run_local, patch(
+            "shorts_generator.pipeline._persist_performance_report",
+            return_value=None,
+        ):
+            generate_shorts(
+                "https://example.test/source",
+                num_clips=1,
+                mode="local",
+                selection_profile="bf_feed_stop_v2",
+                select_only=True,
+            )
+
+        resolved = run_local.call_args.args[5]
+        self.assertEqual(resolved["format_profile"], BF_FEED_STOP_FORMAT_V4)
+        self.assertEqual(resolved["render_profile"], BF_EDITORIAL_INSET_V4)
+
     def test_feed_stop_freezes_fail_closed_speech_cleanliness_contract(self):
         metadata = profile_manifest_metadata(
             resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V1)

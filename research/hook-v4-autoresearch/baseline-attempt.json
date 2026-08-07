@@ -1,0 +1,81 @@
+{
+  "artifactType": "BudgetFriendlyHookV4AutoresearchRun",
+  "baselineCreated": false,
+  "contentHash": "8501c6e0d8da4ce37a4a9d06ae380b31973850a46145655c876ddaa5f01f1299",
+  "contractHash": "36fdf8591981e3dc57dba20e670dfa2eca42aae1323d11cd15d82a3e0d529012",
+  "contractVersion": "bf-hook-v4-autoresearch-v1.1.0",
+  "mode": "baseline",
+  "readiness": {
+    "artifactType": "BudgetFriendlyHookV4AutoresearchReadiness",
+    "baselineAllowed": false,
+    "calibrationReady": false,
+    "captureEvidence": {
+      "artifactType": "BudgetFriendlyHookV4CaptureControlReadiness",
+      "candidateRejectionCount": 1,
+      "contentHash": "ac832bfcd35e4197f440963c917337f169d6282a512c57ebca0c3286efe5a6f1",
+      "contractHash": "36fdf8591981e3dc57dba20e670dfa2eca42aae1323d11cd15d82a3e0d529012",
+      "controls": [
+        {
+          "axisOwner": "speech_cleanliness",
+          "evidenceHash": "b412f07432568080e5d796daea6408b45add22b911feee9998f8e5fab5d7e361",
+          "hookCalibrationEligible": false,
+          "presentAndExact": true,
+          "v4Evaluable": false
+        },
+        {
+          "axisOwner": "hook_gate_v4",
+          "evidenceHash": "8435ad6557b6ecd51e80c03a8e08031baca9afad5e073d820e8965c6a8b4d64b",
+          "hookCalibrationEligible": true,
+          "presentAndExact": true,
+          "v4Evaluable": false
+        },
+        {
+          "axisOwner": "hook_gate_v4_and_spoken_clarity",
+          "evidenceHash": "c8606eee404f6ec4da9119f2457b8ae68bc0689e3ad9ec1dce6839be27b2e6ac",
+          "hookCalibrationEligible": true,
+          "presentAndExact": true,
+          "v4Evaluable": false
+        }
+      ],
+      "formalPositiveCount": 0,
+      "integrityError": null,
+      "previewRejectionCount": 2,
+      "promotedToCorpus": false,
+      "schemaVersion": 1,
+      "strictNegativeControlCount": 3,
+      "strictNegativeControlsPresentAndExact": true,
+      "v4EvaluableNegativeControlCount": 0
+    },
+    "contentHash": "2217db4445bad0f4cc7a06c7be568ea37fb7812be15eb1325272fea2501e0919",
+    "contractHash": "36fdf8591981e3dc57dba20e670dfa2eca42aae1323d11cd15d82a3e0d529012",
+    "contractVersion": "bf-hook-v4-autoresearch-v1.1.0",
+    "corpusError": "dedicated_hook_v4_corpus_missing",
+    "corpusHash": null,
+    "corpusManifest": "research/fixtures/bf-hook-v4-replay/manifest.json",
+    "dataReadinessGates": [],
+    "evaluationLane": "hook_gate_v4",
+    "limitations": [
+      "Observed/manual approval is non-scoring until a formal CandidateDecision exists.",
+      "V3 and preview-only records need sealed V4 semantic evidence before replay.",
+      "The semantic_closure V2 corpus is not HookGate V4 calibration evidence."
+    ],
+    "observedPositiveControl": {
+      "activationEligible": false,
+      "artifactType": "BudgetFriendlyHookV4ObservedControlReadiness",
+      "contentHash": "8b332d78396a572b5fcbe9d67e7d00399f7db387a025476197b245fed10d1329",
+      "contractHash": "36fdf8591981e3dc57dba20e670dfa2eca42aae1323d11cd15d82a3e0d529012",
+      "controlId": "public-v3pd9yrmi-c",
+      "formalLabel": false,
+      "labelSemantics": "observed_manual_approval_non_scoring",
+      "metadataVerified": true,
+      "reason": "observed_control_metadata_verified",
+      "schemaVersion": 1,
+      "v4Evaluable": false
+    },
+    "schemaVersion": 1,
+    "status": "calibration_not_ready"
+  },
+  "runVersion": "bf-hook-v4-autoresearch-run-v1.1.0",
+  "schemaVersion": 1,
+  "status": "calibration_not_ready"
+}

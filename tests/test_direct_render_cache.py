@@ -1,8 +1,10 @@
 import copy
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import shorts_generator.config as config
@@ -10,14 +12,35 @@ import shorts_generator.local.clipper as local_clipper
 import shorts_generator.local.downloader as local_downloader
 import shorts_generator.local.transcriber as local_transcriber
 import shorts_generator.local.visual_features as local_visual_features
-from shorts_generator.artifact_contracts import candidate_hash, file_sha256
+from shorts_generator.artifact_contracts import (
+    candidate_hash,
+    content_hash,
+    file_sha256,
+)
 from shorts_generator.performance import PerformanceTelemetry
+from shorts_generator.music_router import route_music_for_candidate
 from shorts_generator.pipeline import (
+    _direct_local_render_cache_identity,
     _direct_local_render_plan_hash,
     _render_direct_local_batch_with_cache,
     _run_local,
 )
-from shorts_generator.profiles import BF_EDITORIAL_INSET_V1, resolve_profile_bundle
+from shorts_generator.production_workflow import (
+    V4_MUSIC_CATALOG_CONTENT_HASH,
+    _dynamic_music_treatment_version,
+    _render_cache_identity,
+    _renderer_fingerprint,
+    _resolve_v4_music_cache_binding,
+)
+from shorts_generator.profiles import (
+    BF_EDITORIAL_INSET_V1,
+    BF_EDITORIAL_INSET_V3,
+    BF_EDITORIAL_INSET_V4,
+    MUSIC_ROTATION_VERSION,
+    SEMANTIC_MUSIC_ROUTER_VERSION,
+    VIRAL_MUSIC_CATALOG_VERSION,
+    resolve_profile_bundle,
+)
 from shorts_generator.render_cache import RenderCache
 
 
@@ -85,7 +108,371 @@ def _render_metadata():
     }
 
 
+def _sealed(body):
+    return {**body, "contentHash": content_hash(body)}
+
+
+def _synthetic_v4_music_contract(root: Path):
+    music_bytes = b"licensed-v4-music-fixture"
+    relative_path = "assets/music/test-v4-track.mp3"
+    music_path = root / relative_path
+    music_path.parent.mkdir(parents=True, exist_ok=True)
+    music_path.write_bytes(music_bytes)
+    track = {
+        "trackId": "pixabay:test-v4",
+        "relativePath": relative_path,
+        "title": "Synthetic V4 track",
+        "creator": "Test fixture",
+        "sourcePageUrl": "https://example.test/music",
+        "contentUrl": "https://example.test/music.mp3",
+        "licenseUrl": "https://example.test/license",
+        "sha256": file_sha256(music_path),
+        "byteLength": len(music_bytes),
+        "durationSeconds": 90.0,
+        "codec": "mp3",
+        "sampleRate": 48000,
+        "channels": 2,
+        "aiGenerated": False,
+        "contentIdRegistered": "unknown",
+        "semanticFamilies": ["hard_truth"],
+        "treatmentProfile": "reflective",
+        "recommendedOffsetSeconds": 24.0,
+        "catalogOrder": 1,
+    }
+    catalog = _sealed(
+        {
+            "schemaVersion": 1,
+            "artifactType": "ViralMusicCatalog",
+            "catalogVersion": VIRAL_MUSIC_CATALOG_VERSION,
+            "licenseUrl": "https://example.test/license",
+            "retrievedAt": "2026-08-08T00:00:00Z",
+            "sourceReplacement": {
+                "explicit": True,
+                "requestedTrack": {
+                    "title": "Unavailable fixture track",
+                    "sourcePageUrl": "https://example.test/unavailable",
+                    "pixabayContentId": 999999,
+                },
+                "replacementTrackId": track["trackId"],
+                "note": "Synthetic replacement evidence for cache tests.",
+            },
+            "tracks": [track],
+        }
+    )
+    catalog_path = root / "assets" / "music" / "catalog.v1.json"
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+    candidate = {
+        "render_profile": BF_EDITORIAL_INSET_V4,
+        "background_music": True,
+        "music_profile": "reflective",
+        "topic": "an uncomfortable hard truth",
+        "whole_point_summary": "You cannot avoid a hard truth forever.",
+        "final_takeaway_sentence": "Accept the truth.",
+    }
+    decision = route_music_for_candidate(
+        candidate,
+        catalog_path=catalog_path,
+        repository_root=root,
+        verify_assets=True,
+    )
+    candidate.update(
+        {
+            "musicRoutingDecision": decision,
+            "musicCatalogTrack": track,
+        }
+    )
+    return candidate, catalog, track, music_path
+
+
 class DirectRenderPlanIdentityTests(unittest.TestCase):
+    def test_v3_cache_identity_has_nonempty_music_treatment_before_render_metadata(self):
+        self.assertEqual(
+            _dynamic_music_treatment_version(
+                {"render_profile": BF_EDITORIAL_INSET_V3}
+            ),
+            "bf_dynamic_music_v1.0.0",
+        )
+        self.assertEqual(
+            _dynamic_music_treatment_version(
+                {
+                    "render_profile": BF_EDITORIAL_INSET_V3,
+                    "music_version": "custom-dynamic-music-v2",
+                }
+            ),
+            "custom-dynamic-music-v2",
+        )
+        self.assertIsNone(
+            _dynamic_music_treatment_version(
+                {"render_profile": BF_EDITORIAL_INSET_V1}
+            )
+        )
+        self.assertEqual(
+            _dynamic_music_treatment_version(
+                {"render_profile": BF_EDITORIAL_INSET_V4}
+            ),
+            "bf_dynamic_music_v1.0.0",
+        )
+
+    def test_v3_renderer_config_binds_nonempty_music_treatment(self):
+        prepared = {
+            "renderCandidate": {
+                "render_profile": BF_EDITORIAL_INSET_V3,
+                "music_profile": "reflective",
+                "background_music": False,
+            },
+            "editPlan": {
+                "sourceHash": "a" * 64,
+                "contentHash": "b" * 64,
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory, (
+            patch.object(config, "LOCAL_RENDER_CACHE", True)
+        ), patch.object(
+            config, "LOCAL_RENDER_CACHE_DIR", directory
+        ), patch.object(
+            config, "LOCAL_REAL_ESRGAN", False
+        ), patch.object(
+            local_clipper, "_resolve_caption_font", return_value=None
+        ), patch.object(
+            local_clipper, "_resolve_motivational_support_font", return_value=None
+        ), patch.object(
+            local_clipper, "_resolve_motivational_accent_font", return_value=None
+        ), patch.object(
+            local_clipper, "_resolve_motivational_script_font", return_value=None
+        ), patch.object(
+            local_clipper, "_resolve_motivational_music_track", return_value=None
+        ), patch(
+            "shorts_generator.production_workflow._renderer_fingerprint",
+            return_value="renderer-fingerprint",
+        ), patch(
+            "shorts_generator.production_workflow.build_render_cache_key",
+            return_value="cache-key",
+        ) as build_key:
+            _, cache_key = _render_cache_identity(prepared)
+
+        self.assertEqual(cache_key, "cache-key")
+        music_identity = build_key.call_args.kwargs["renderer_config"]["music"]
+        self.assertEqual(
+            music_identity["treatmentVersion"],
+            "bf_dynamic_music_v1.0.0",
+        )
+        self.assertTrue(music_identity["treatmentVersion"].strip())
+
+    def test_v4_resolver_binds_sealed_decision_catalog_entry_and_exact_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate, catalog, track, music_path = _synthetic_v4_music_contract(
+                root
+            )
+            with patch(
+                "shorts_generator.production_workflow."
+                "V4_MUSIC_CATALOG_CONTENT_HASH",
+                catalog["contentHash"],
+            ):
+                binding = _resolve_v4_music_cache_binding(
+                    candidate,
+                    repository_root=root,
+                )
+
+        self.assertEqual(binding["trackId"], track["trackId"])
+        self.assertEqual(binding["startSeconds"], 24.0)
+        self.assertEqual(binding["catalogContentHash"], catalog["contentHash"])
+        self.assertEqual(binding["assetSha256"], track["sha256"])
+        self.assertEqual(binding["assetByteLength"], track["byteLength"])
+        self.assertEqual(binding["musicPath"], str(music_path.resolve()))
+
+    def test_v4_resolver_fails_closed_on_missing_stale_or_mismatched_routing(self):
+        with self.assertRaisesRegex(ValueError, "musicRoutingDecision"):
+            _resolve_v4_music_cache_binding(
+                {
+                    "render_profile": BF_EDITORIAL_INSET_V4,
+                    "musicCatalogTrack": {},
+                }
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate, catalog, _, _ = _synthetic_v4_music_contract(root)
+            stale = copy.deepcopy(candidate)
+            stale["musicRoutingDecision"]["startSeconds"] = 29.0
+            with patch(
+                "shorts_generator.production_workflow."
+                "V4_MUSIC_CATALOG_CONTENT_HASH",
+                catalog["contentHash"],
+            ), self.assertRaisesRegex(Exception, "seal|contentHash"):
+                _resolve_v4_music_cache_binding(
+                    stale,
+                    repository_root=root,
+                )
+
+            mismatch = copy.deepcopy(candidate)
+            mismatch["musicCatalogTrack"] = {
+                **mismatch["musicCatalogTrack"],
+                "trackId": "pixabay:other",
+            }
+            with patch(
+                "shorts_generator.production_workflow."
+                "V4_MUSIC_CATALOG_CONTENT_HASH",
+                catalog["contentHash"],
+            ), self.assertRaisesRegex(ValueError, "musicCatalogTrack"):
+                _resolve_v4_music_cache_binding(
+                    mismatch,
+                    repository_root=root,
+                )
+
+            transplanted = copy.deepcopy(candidate)
+            transplanted["whole_point_summary"] = (
+                "A completely different relationship point."
+            )
+            with patch(
+                "shorts_generator.production_workflow."
+                "V4_MUSIC_CATALOG_CONTENT_HASH",
+                catalog["contentHash"],
+            ), self.assertRaisesRegex(Exception, "other semantics"):
+                _resolve_v4_music_cache_binding(
+                    transplanted,
+                    repository_root=root,
+                )
+
+    def test_v4_cache_identity_uses_only_sealed_route_and_exact_catalog_asset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            music_path = root / "routed.mp3"
+            music_path.write_bytes(b"routed-v4-music")
+            decision = {
+                "contentHash": "d" * 64,
+                "semanticInputHash": "e" * 64,
+                "routerVersion": SEMANTIC_MUSIC_ROUTER_VERSION,
+                "catalogVersion": VIRAL_MUSIC_CATALOG_VERSION,
+                "rotationVersion": MUSIC_ROTATION_VERSION,
+            }
+            track = {
+                "relativePath": "assets/music/routed.mp3",
+            }
+            binding = {
+                "decision": decision,
+                "catalogTrack": track,
+                "catalogContentHash": V4_MUSIC_CATALOG_CONTENT_HASH,
+                "musicPath": str(music_path),
+                "assetSha256": file_sha256(music_path),
+                "assetByteLength": music_path.stat().st_size,
+                "startSeconds": 29.0,
+                "trackId": "pixabay:112823",
+                "treatmentProfile": "reflective",
+            }
+            prepared = {
+                "renderCandidate": {
+                    "render_profile": BF_EDITORIAL_INSET_V4,
+                    "music_profile": "reflective",
+                    "background_music": True,
+                    # Deliberately conflicting legacy-looking fields. The V4
+                    # cache contract must consume only the sealed binding.
+                    "music_version": "bf_dynamic_music_v1.0.0",
+                },
+                "editPlan": {
+                    "sourceHash": "a" * 64,
+                    "contentHash": "b" * 64,
+                },
+            }
+            with (
+                patch.object(config, "LOCAL_RENDER_CACHE", True),
+                patch.object(config, "LOCAL_RENDER_CACHE_DIR", directory),
+                patch.object(config, "LOCAL_REAL_ESRGAN", False),
+                patch.object(config, "LOCAL_MOTIVATIONAL_MUSIC", True),
+                patch.object(
+                    config, "LOCAL_MOTIVATIONAL_MUSIC_PROFILE", "driving"
+                ),
+                patch.object(
+                    config, "LOCAL_MOTIVATIONAL_MUSIC_START_SECONDS", 777.0
+                ),
+                patch.object(
+                    local_clipper, "_resolve_caption_font", return_value=None
+                ),
+                patch.object(
+                    local_clipper,
+                    "_resolve_motivational_support_font",
+                    return_value=None,
+                ),
+                patch.object(
+                    local_clipper,
+                    "_resolve_motivational_accent_font",
+                    return_value=None,
+                ),
+                patch.object(
+                    local_clipper,
+                    "_resolve_motivational_script_font",
+                    return_value=None,
+                ),
+                patch.object(
+                    local_clipper, "_resolve_motivational_music_track"
+                ) as legacy_resolver,
+                patch(
+                    "shorts_generator.production_workflow."
+                    "_resolve_v4_music_cache_binding",
+                    return_value=binding,
+                ),
+                patch(
+                    "shorts_generator.production_workflow._renderer_fingerprint",
+                    return_value="v4-renderer-fingerprint",
+                ) as renderer_fingerprint,
+                patch(
+                    "shorts_generator.production_workflow.build_render_cache_key",
+                    return_value="v4-cache-key",
+                ) as build_key,
+            ):
+                _, cache_key = _render_cache_identity(prepared)
+
+        self.assertEqual(cache_key, "v4-cache-key")
+        legacy_resolver.assert_not_called()
+        renderer_fingerprint.assert_called_once_with(
+            True,
+            True,
+            V4_MUSIC_CATALOG_CONTENT_HASH,
+        )
+        call = build_key.call_args.kwargs
+        self.assertEqual(call["asset_hashes"]["music"], binding["assetSha256"])
+        music = call["renderer_config"]["music"]
+        self.assertNotIn("profile", music)
+        self.assertEqual(music["routingDecisionHash"], "d" * 64)
+        self.assertEqual(music["semanticInputHash"], "e" * 64)
+        self.assertEqual(music["trackId"], "pixabay:112823")
+        self.assertEqual(music["startSeconds"], 29.0)
+        self.assertEqual(
+            music["catalogContentHash"], V4_MUSIC_CATALOG_CONTENT_HASH
+        )
+        self.assertEqual(
+            music["catalogTrack"],
+            {
+                "relativePath": "assets/music/routed.mp3",
+                "sha256": binding["assetSha256"],
+                "byteLength": binding["assetByteLength"],
+            },
+        )
+
+    def test_v4_cache_fails_before_resolution_when_music_layer_is_disabled(self):
+        prepared = {
+            "renderCandidate": {
+                "render_profile": BF_EDITORIAL_INSET_V4,
+                "background_music": True,
+            },
+            "editPlan": {
+                "sourceHash": "a" * 64,
+                "contentHash": "b" * 64,
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            config, "LOCAL_RENDER_CACHE", True
+        ), patch.object(
+            config, "LOCAL_RENDER_CACHE_DIR", directory
+        ), patch.object(
+            config, "LOCAL_MOTIVATIONAL_MUSIC", False
+        ), patch(
+            "shorts_generator.production_workflow._resolve_v4_music_cache_binding"
+        ) as resolver:
+            with self.assertRaisesRegex(ValueError, "routed music layer"):
+                _render_cache_identity(prepared)
+        resolver.assert_not_called()
+
     def test_plan_hash_binds_candidate_transcript_and_aspect_but_not_batch_rank(self):
         source_hash = "a" * 64
         profiles = resolve_profile_bundle(format_profile="bf_viral_micro_v1")
@@ -140,6 +527,136 @@ class DirectRenderPlanIdentityTests(unittest.TestCase):
                 profiles,
             ),
         )
+
+    def test_v3_cache_identity_binds_dynamic_music_inputs_and_is_enabled(self):
+        source_hash = "a" * 64
+        profiles = resolve_profile_bundle(format_profile="bf_feed_stop_format_v3")
+        candidate = _candidate(
+            source_hash,
+            selection_profile="bf_feed_stop_v2",
+            render_profile=BF_EDITORIAL_INSET_V3,
+            format_profile="bf_feed_stop_format_v3",
+            music_profile="reflective",
+            music_mix_profile="bf_dynamic_music_v1.0.0",
+            opening_unit_exact_quote="Good people tell the truth.",
+            payoff_exact_quote="Good people tell the truth.",
+        )
+
+        base_plan_hash = _direct_local_render_plan_hash(
+            candidate,
+            _transcript(),
+            source_hash,
+            "9:16",
+            profiles,
+        )
+        changed = _candidate(
+            source_hash,
+            selection_profile="bf_feed_stop_v2",
+            render_profile=BF_EDITORIAL_INSET_V3,
+            format_profile="bf_feed_stop_format_v3",
+            music_profile="driving",
+            music_mix_profile="bf_dynamic_music_v1.0.0",
+            opening_unit_exact_quote="Good people tell the truth.",
+            payoff_exact_quote="Good people tell the truth.",
+        )
+        self.assertNotEqual(
+            base_plan_hash,
+            _direct_local_render_plan_hash(
+                changed,
+                _transcript(),
+                source_hash,
+                "9:16",
+                profiles,
+            ),
+        )
+
+        with patch(
+            "shorts_generator.production_workflow._render_cache_identity",
+            return_value=("cache", "v3-cache-key"),
+        ) as identity:
+            self.assertEqual(
+                _direct_local_render_cache_identity(
+                    candidate,
+                    _transcript(),
+                    source_hash,
+                    "9:16",
+                    profiles,
+                ),
+                ("cache", "v3-cache-key"),
+            )
+        identity.assert_called_once()
+
+    def test_renderer_fingerprint_changes_when_dynamic_music_code_changes(self):
+        real_path_open = Path.open
+
+        def mutated_open(path, *args, **kwargs):
+            if Path(path).name == "dynamic_music.py":
+                return io.BytesIO(b"synthetic dynamic-music implementation v2")
+            return real_path_open(path, *args, **kwargs)
+
+        with patch(
+            "shorts_generator.production_workflow.importlib.metadata.version",
+            return_value="test-runtime",
+        ), patch(
+            "shorts_generator.production_workflow.subprocess.run",
+            return_value=SimpleNamespace(stdout="ffmpeg version test\n"),
+        ):
+            _renderer_fingerprint.cache_clear()
+            legacy_baseline = _renderer_fingerprint(False)
+            baseline = _renderer_fingerprint(True)
+            with patch.object(Path, "open", new=mutated_open):
+                _renderer_fingerprint.cache_clear()
+                legacy_mutated = _renderer_fingerprint(False)
+                mutated = _renderer_fingerprint(True)
+        _renderer_fingerprint.cache_clear()
+
+        self.assertEqual(legacy_baseline, legacy_mutated)
+        self.assertNotEqual(baseline, mutated)
+
+    def test_v4_fingerprint_binds_router_source_and_canonical_catalog_hash(self):
+        real_path_open = Path.open
+        router_bytes = b"semantic music router v1"
+
+        def router_open(path, *args, **kwargs):
+            if Path(path).name == "music_router.py":
+                return io.BytesIO(router_bytes)
+            return real_path_open(path, *args, **kwargs)
+
+        with patch(
+            "shorts_generator.production_workflow.importlib.metadata.version",
+            return_value="test-runtime",
+        ), patch(
+            "shorts_generator.production_workflow.subprocess.run",
+            return_value=SimpleNamespace(stdout="ffmpeg version test\n"),
+        ), patch.object(Path, "open", new=router_open):
+            _renderer_fingerprint.cache_clear()
+            first = _renderer_fingerprint(
+                True,
+                True,
+                V4_MUSIC_CATALOG_CONTENT_HASH,
+            )
+            changed_catalog = _renderer_fingerprint(True, True, "f" * 64)
+            v3 = _renderer_fingerprint(True)
+
+            router_bytes = b"semantic music router v2"
+            _renderer_fingerprint.cache_clear()
+            changed_router = _renderer_fingerprint(
+                True,
+                True,
+                V4_MUSIC_CATALOG_CONTENT_HASH,
+            )
+            unchanged_v3 = _renderer_fingerprint(True)
+        _renderer_fingerprint.cache_clear()
+
+        self.assertNotEqual(first, changed_catalog)
+        self.assertNotEqual(first, changed_router)
+        self.assertEqual(v3, unchanged_v3)
+
+    def test_v4_fingerprint_rejects_missing_catalog_hash(self):
+        _renderer_fingerprint.cache_clear()
+        with self.assertRaisesRegex(ValueError, "catalog hash"):
+            _renderer_fingerprint(True, True, "")
+        _renderer_fingerprint.cache_clear()
 
 
 class DirectRenderBatchCacheTests(unittest.TestCase):

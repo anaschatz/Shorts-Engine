@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import math
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
@@ -22,20 +23,38 @@ from .artifact_contracts import (
     verify_seal,
 )
 from .audio_qa import evaluate_audio_delivery
+from .dynamic_music import DYNAMIC_MUSIC_PLAN_VERSION
 from .editorial_qa import evaluate_editorial_render
 from .media_probe import (
     probe_rendered_video as _probe_video,
     probe_video_frame_size_ffprobe as _probe_video_frame_size_ffprobe,
 )
+from .music_router import (
+    resolve_music_asset_path,
+    verify_music_routing_decision,
+)
 from .profiles import (
     BF_EDITORIAL_INSET_V1,
+    BF_EDITORIAL_INSET_V3,
+    BF_EDITORIAL_INSET_V4,
     BF_SMOOTH_TAIL_V5,
     BF_VIRAL_MICRO_V1,
+    MUSIC_ROTATION_VERSION,
     MOTIVATIONAL_PODCAST,
     MOTIVATIONAL_TENSION_MICRO_V1,
+    SEMANTIC_MUSIC_ROUTER_VERSION,
+    VIRAL_MUSIC_CATALOG_CONTENT_HASH,
+    VIRAL_MUSIC_CATALOG_VERSION,
     render_settings_for_content,
 )
 from .render_cache import RenderCache, RenderCacheError, build_render_cache_key
+
+
+# This is the engine-canonical hash produced by ``artifact_contracts.content_hash``
+# for assets/music/catalog.v1.json.  It is deliberately code-owned: changing
+# catalog bytes without a reviewed version/hash update must fail before cache
+# lookup, not silently reinterpret an existing V4 routing decision.
+V4_MUSIC_CATALOG_CONTENT_HASH = VIRAL_MUSIC_CATALOG_CONTENT_HASH
 
 
 def _timed(telemetry: Optional[Any], name: str, **attributes):
@@ -132,19 +151,47 @@ def _real_esrgan_required_for_source(source_path: str) -> bool:
     return not _should_bypass_editorial_realesrgan(source_size, output_size)
 
 
-@lru_cache(maxsize=1)
-def _renderer_fingerprint() -> str:
+@lru_cache(maxsize=8)
+def _renderer_fingerprint(
+    include_dynamic_music: bool = False,
+    include_music_router: bool = False,
+    music_catalog_content_hash: str = "",
+) -> str:
     """Bind exact-output cache entries to renderer code and runtime versions."""
     digest = hashlib.sha256()
     package_root = Path(__file__).resolve().parent
-    for path in (
+    renderer_sources = [
         package_root / "local" / "clipper.py",
         package_root / "profiles.py",
-    ):
+    ]
+    if include_dynamic_music:
+        renderer_sources.append(package_root / "dynamic_music.py")
+    if include_music_router:
+        normalized_catalog_hash = str(
+            music_catalog_content_hash or ""
+        ).strip().lower().removeprefix("sha256:")
+        if (
+            len(normalized_catalog_hash) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in normalized_catalog_hash
+            )
+        ):
+            raise ValueError(
+                "V4 renderer fingerprint requires the canonical music catalog hash"
+            )
+        renderer_sources.append(package_root / "music_router.py")
+    for path in renderer_sources:
         digest.update(path.name.encode("utf-8"))
         with path.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
+    if include_music_router:
+        digest.update(
+            f"musicCatalogContentHash={normalized_catalog_hash}\n".encode(
+                "utf-8"
+            )
+        )
     for distribution in ("numpy", "opencv-python", "Pillow"):
         try:
             version = importlib.metadata.version(distribution)
@@ -164,11 +211,182 @@ def _renderer_fingerprint() -> str:
     return digest.hexdigest()
 
 
+def _dynamic_music_treatment_version(render_candidate: Dict) -> Optional[str]:
+    """Return the non-empty dynamic treatment version consumed by cache identity."""
+
+    if render_candidate.get("render_profile") not in {
+        BF_EDITORIAL_INSET_V3,
+        BF_EDITORIAL_INSET_V4,
+    }:
+        return None
+    configured = str(
+        render_candidate.get("music_version")
+        or render_candidate.get("music_mix_profile")
+        or ""
+    ).strip()
+    return configured or DYNAMIC_MUSIC_PLAN_VERSION
+
+
 @lru_cache(maxsize=64)
 def _asset_sha256(path_text: str, size: int, mtime_ns: int) -> str:
     """Hash one resolved renderer asset once per process/stat identity."""
     del size, mtime_ns
     return file_sha256(path_text)
+
+
+def _sha256_text(value: object, label: str) -> str:
+    normalized = str(value or "").strip().lower().removeprefix("sha256:")
+    if len(normalized) != 64 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
+        raise ValueError(f"{label} must be a SHA-256 hash")
+    return normalized
+
+
+def _finite_nonnegative(value: object, label: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a non-negative finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"{label} must be a non-negative finite number"
+        ) from error
+    if not math.isfinite(number) or number < 0.0:
+        raise ValueError(f"{label} must be a non-negative finite number")
+    return number
+
+
+def _resolve_v4_music_cache_binding(
+    render_candidate: Dict,
+    *,
+    repository_root: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Verify and resolve the exact V4 routing/catalog/asset cache identity.
+
+    V4 never consults the legacy global track/profile override.  Its sealed
+    routing decision chooses one exact code-authorized catalog entry, and the
+    bytes at that entry are rechecked before they can participate in a cache
+    key.
+    """
+
+    raw_decision = render_candidate.get("musicRoutingDecision")
+    raw_track = render_candidate.get("musicCatalogTrack")
+    if not isinstance(raw_decision, dict):
+        raise ValueError("bf_editorial_inset_v4 requires musicRoutingDecision")
+    if not isinstance(raw_track, dict):
+        raise ValueError("bf_editorial_inset_v4 requires musicCatalogTrack")
+
+    if raw_decision.get("catalogTrack") != raw_track:
+        raise ValueError(
+            "musicCatalogTrack does not match the sealed routing decision"
+        )
+
+    resolved_repository_root = (
+        Path(__file__).resolve().parents[1]
+        if repository_root is None
+        else Path(repository_root).resolve()
+    )
+    catalog_path = (
+        resolved_repository_root / "assets" / "music" / "catalog.v1.json"
+    )
+    # The router owns the strict decision/catalog schemas, rotation-window
+    # proof, exact catalog entry and local asset integrity checks.  Cache code
+    # additionally binds the output-affecting subset into renderer identity.
+    decision = verify_music_routing_decision(
+        raw_decision,
+        candidate=render_candidate,
+        catalog_path=catalog_path,
+        repository_root=resolved_repository_root,
+        verify_assets=True,
+    )
+    expected_versions = {
+        "routerVersion": SEMANTIC_MUSIC_ROUTER_VERSION,
+        "catalogVersion": VIRAL_MUSIC_CATALOG_VERSION,
+        "rotationVersion": MUSIC_ROTATION_VERSION,
+    }
+    for field, expected in expected_versions.items():
+        if decision.get(field) != expected:
+            raise ValueError(
+                f"musicRoutingDecision {field} does not match {expected}"
+            )
+
+    track_id = str(decision.get("trackId") or "").strip()
+    catalog_track_id = str(raw_track.get("trackId") or "").strip()
+    if not track_id or track_id != catalog_track_id:
+        raise ValueError(
+            "musicRoutingDecision trackId does not match musicCatalogTrack"
+        )
+    treatment_profile = str(
+        decision.get("treatmentProfile") or ""
+    ).strip().lower()
+    if (
+        not treatment_profile
+        or treatment_profile
+        != str(render_candidate.get("music_profile") or "").strip().lower()
+        or treatment_profile
+        != str(raw_track.get("treatmentProfile") or "").strip().lower()
+    ):
+        raise ValueError(
+            "V4 music treatment profile is not bound across candidate, "
+            "routing decision and catalog track"
+        )
+    start_seconds = _finite_nonnegative(
+        decision.get("startSeconds"),
+        "musicRoutingDecision.startSeconds",
+    )
+    catalog_start = _finite_nonnegative(
+        raw_track.get("recommendedOffsetSeconds"),
+        "musicCatalogTrack.recommendedOffsetSeconds",
+    )
+    if abs(start_seconds - catalog_start) > 0.001:
+        raise ValueError(
+            "musicRoutingDecision startSeconds does not match the catalog offset"
+        )
+
+    catalog_hash = _sha256_text(
+        decision.get("catalogContentHash"),
+        "music catalog contentHash",
+    )
+    if catalog_hash != V4_MUSIC_CATALOG_CONTENT_HASH:
+        raise ValueError("the V4 viral music catalog hash is not code-authorized")
+    music_path = resolve_music_asset_path(
+        raw_track,
+        catalog_path=catalog_path,
+        repository_root=resolved_repository_root,
+    )
+    if music_path.is_symlink() or not music_path.is_file():
+        raise ValueError("the routed V4 music asset is missing or unsafe")
+
+    expected_length = raw_track.get("byteLength")
+    if (
+        isinstance(expected_length, bool)
+        or not isinstance(expected_length, int)
+        or expected_length <= 0
+    ):
+        raise ValueError("musicCatalogTrack.byteLength must be a positive integer")
+    expected_sha = _sha256_text(
+        raw_track.get("sha256"), "musicCatalogTrack.sha256"
+    )
+    stat = music_path.stat()
+    if stat.st_size != expected_length:
+        raise ValueError("the routed V4 music asset byteLength does not match")
+    # ``verify_music_routing_decision(..., verify_assets=True)`` just hashed
+    # these exact bytes against the catalog. Reuse that authoritative digest
+    # rather than a stat-keyed legacy hash-cache entry.
+    actual_sha = expected_sha
+
+    return {
+        "decision": decision,
+        "catalogTrack": dict(raw_track),
+        "catalogContentHash": catalog_hash,
+        "musicPath": str(music_path),
+        "assetSha256": actual_sha,
+        "assetByteLength": expected_length,
+        "startSeconds": start_seconds,
+        "trackId": track_id,
+        "treatmentProfile": treatment_profile,
+    }
 
 
 def _render_cache_identity(
@@ -203,19 +421,42 @@ def _render_cache_identity(
     from .local import clipper
 
     render_candidate = prepared["renderCandidate"]
+    v4_music_enabled = (
+        render_candidate.get("render_profile") == BF_EDITORIAL_INSET_V4
+    )
+    v4_music_binding = None
+    if v4_music_enabled:
+        if (
+            not LOCAL_MOTIVATIONAL_MUSIC
+            or render_candidate.get("background_music") is not True
+        ):
+            raise ValueError(
+                "bf_editorial_inset_v4 requires the routed music layer"
+            )
+        v4_music_binding = _resolve_v4_music_cache_binding(render_candidate)
+        resolved_music_path = str(v4_music_binding["musicPath"])
+    else:
+        # V1--V3 retain the exact legacy resolver and environment override
+        # behavior. V4 must never resolve music through this branch.
+        resolved_music_path = clipper._resolve_motivational_music_track(
+            bool(render_candidate.get("background_music", False)),
+            str(render_candidate.get("music_profile") or ""),
+        )
     asset_paths = {
         "font.base": clipper._resolve_caption_font(BF_EDITORIAL_INSET_V1),
         "font.support": clipper._resolve_motivational_support_font(),
         "font.accent": clipper._resolve_motivational_accent_font(),
         "font.script": clipper._resolve_motivational_script_font(),
-        "music": clipper._resolve_motivational_music_track(
-            bool(render_candidate.get("background_music", False)),
-            str(render_candidate.get("music_profile") or ""),
-        ),
+        "music": resolved_music_path,
     }
     asset_hashes = {}
     for name, path_text in asset_paths.items():
         if not path_text:
+            continue
+        if name == "music" and v4_music_binding is not None:
+            # The router performed a fresh full-byte verification above; its
+            # catalog digest is the authoritative V4 asset identity.
+            asset_hashes[name] = str(v4_music_binding["assetSha256"])
             continue
         path = Path(path_text)
         stat = path.stat()
@@ -237,6 +478,58 @@ def _render_cache_identity(
                 runtime,
                 enhancement_model or "realesrgan-x4plus",
             )
+    dynamic_music_treatment_version = _dynamic_music_treatment_version(
+        render_candidate
+    )
+    dynamic_music_enabled = dynamic_music_treatment_version is not None
+    music_config = {
+        "enabled": LOCAL_MOTIVATIONAL_MUSIC,
+        "loudness": LOCAL_MOTIVATIONAL_MUSIC_LOUDNESS,
+    }
+    if v4_music_binding is not None:
+        decision = v4_music_binding["decision"]
+        catalog_track = v4_music_binding["catalogTrack"]
+        music_config.update(
+            {
+                "candidateProfile": v4_music_binding["treatmentProfile"],
+                "treatmentVersion": str(dynamic_music_treatment_version),
+                "routingDecisionHash": decision["contentHash"],
+                "semanticInputHash": decision["semanticInputHash"],
+                "routerVersion": decision["routerVersion"],
+                "catalogVersion": decision["catalogVersion"],
+                "catalogContentHash": v4_music_binding[
+                    "catalogContentHash"
+                ],
+                "rotationVersion": decision["rotationVersion"],
+                "trackId": v4_music_binding["trackId"],
+                "startSeconds": v4_music_binding["startSeconds"],
+                "catalogTrack": {
+                    "relativePath": catalog_track["relativePath"],
+                    "sha256": v4_music_binding["assetSha256"],
+                    "byteLength": v4_music_binding["assetByteLength"],
+                },
+            }
+        )
+    else:
+        # Keep the historical V1--V3 identity body byte-for-byte shaped as it
+        # was before semantic asset routing existed.
+        music_config.update(
+            {
+                "profile": LOCAL_MOTIVATIONAL_MUSIC_PROFILE,
+                "startSeconds": LOCAL_MOTIVATIONAL_MUSIC_START_SECONDS,
+            }
+        )
+    if dynamic_music_enabled and v4_music_binding is None:
+        music_config.update(
+            {
+                "candidateProfile": str(
+                    render_candidate.get("music_profile") or ""
+                ),
+                "treatmentVersion": str(
+                    dynamic_music_treatment_version
+                ),
+            }
+        )
     renderer_config = {
         "canvas": {"width": 1080, "height": 1920, "fps": LOCAL_OUTPUT_FPS},
         "video": {
@@ -263,12 +556,7 @@ def _render_cache_identity(
                 render_candidate.get("brand_tail_seconds") or 0.0
             ),
         },
-        "music": {
-            "enabled": LOCAL_MOTIVATIONAL_MUSIC,
-            "profile": LOCAL_MOTIVATIONAL_MUSIC_PROFILE,
-            "loudness": LOCAL_MOTIVATIONAL_MUSIC_LOUDNESS,
-            "startSeconds": LOCAL_MOTIVATIONAL_MUSIC_START_SECONDS,
-        },
+        "music": music_config,
         "enhancement": {
             "enabled": LOCAL_REAL_ESRGAN,
             "bypassHighResolution": LOCAL_REAL_ESRGAN_BYPASS_HIGH_RES,
@@ -281,7 +569,15 @@ def _render_cache_identity(
     key = build_render_cache_key(
         source_hash=prepared["editPlan"]["sourceHash"],
         edit_plan_hash=prepared["editPlan"]["contentHash"],
-        renderer_fingerprint=_renderer_fingerprint(),
+        renderer_fingerprint=_renderer_fingerprint(
+            dynamic_music_enabled,
+            v4_music_enabled,
+            (
+                str(v4_music_binding["catalogContentHash"])
+                if v4_music_binding is not None
+                else ""
+            ),
+        ),
         renderer_config=renderer_config,
         asset_hashes=asset_hashes,
     )

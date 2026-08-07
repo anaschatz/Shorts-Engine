@@ -50,6 +50,8 @@ from ..config import (
 from ..profiles import (
     BF_EDITORIAL_INSET_V1,
     BF_EDITORIAL_INSET_V2,
+    BF_EDITORIAL_INSET_V3,
+    BF_EDITORIAL_INSET_V4,
     BF_NATURAL_TAIL_V6,
     BF_REFERENCE_TAIL_V2,
     BF_SMOOTH_TAIL_V3,
@@ -61,6 +63,20 @@ from ..profiles import (
     MOTIVATIONAL_MUSIC_DRIVING,
     MOTIVATIONAL_MUSIC_REFLECTIVE,
     MOTIVATIONAL_MUSIC_WARM,
+    MUSIC_ROTATION_VERSION,
+    SEMANTIC_MUSIC_ROUTER_VERSION,
+    VIRAL_MUSIC_CATALOG_CONTENT_HASH,
+    VIRAL_MUSIC_CATALOG_VERSION,
+)
+from ..dynamic_music import (
+    build_dynamic_music_plan,
+    validate_dynamic_music_plan,
+    volume_filter_from_plan,
+)
+from ..music_router import (
+    MusicRouterError,
+    resolve_music_asset_path,
+    verify_music_routing_decision,
 )
 from ..winner_packaging import (
     COMPACT_CAPTION_PROFILE,
@@ -277,6 +293,8 @@ MOTIVATIONAL_MUSIC_PROFILE_SETTINGS = {
         "gains": (0.50, 0.74, 0.52, 0.96),
     },
 }
+VIRAL_MUSIC_CATALOG_RELATIVE_PATH = Path("assets/music/catalog.v1.json")
+LEGACY_MUSIC_START_DEFAULT_SECONDS = 8.0
 FACE_DETECTION_HZ = 5.0
 REAL_ESRGAN_BATCH_FRAMES = max(
     8,
@@ -344,6 +362,8 @@ def _is_bf_editorial_profile(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in {
         BF_EDITORIAL_INSET_V1,
         BF_EDITORIAL_INSET_V2,
+        BF_EDITORIAL_INSET_V3,
+        BF_EDITORIAL_INSET_V4,
         BF_WINNER_LAYOUT_V1,
         BF_WINNER_PACKAGING_V1,
     }
@@ -3124,6 +3144,235 @@ def _resolve_motivational_music_track(
     return str(path.resolve())
 
 
+def _music_asset_receipt(path_text: str) -> Dict[str, object]:
+    """Return a content-addressed receipt for the exact resolved music bytes."""
+
+    path = Path(path_text)
+    digest = hashlib.sha256()
+    byte_length = 0
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+            byte_length += len(chunk)
+    if byte_length <= 0:
+        raise RuntimeError("resolved motivational music track is empty")
+    return {
+        "assetId": f"sha256:{digest.hexdigest()}",
+        "sha256": digest.hexdigest(),
+        "byteLength": byte_length,
+    }
+
+
+def _reject_v4_music_overrides() -> None:
+    """Keep V4 fully bound to its sealed router output, never operator state."""
+
+    overrides = []
+    if str(LOCAL_MOTIVATIONAL_MUSIC_TRACK or "").strip():
+        overrides.append("LOCAL_MOTIVATIONAL_MUSIC_TRACK")
+    if str(LOCAL_MOTIVATIONAL_MUSIC_PROFILE or "auto").strip().lower() != "auto":
+        overrides.append("LOCAL_MOTIVATIONAL_MUSIC_PROFILE")
+    try:
+        legacy_start_is_default = math.isclose(
+            float(LOCAL_MOTIVATIONAL_MUSIC_START_SECONDS),
+            LEGACY_MUSIC_START_DEFAULT_SECONDS,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        )
+    except (TypeError, ValueError):
+        legacy_start_is_default = False
+    if (
+        "LOCAL_MOTIVATIONAL_MUSIC_START_SECONDS" in os.environ
+        or not legacy_start_is_default
+    ):
+        overrides.append("LOCAL_MOTIVATIONAL_MUSIC_START_SECONDS")
+    if overrides:
+        raise RuntimeError(
+            "bf_editorial_inset_v4 rejects legacy music overrides: "
+            + ", ".join(overrides)
+        )
+
+
+def _resolve_v4_viral_music_binding(
+    candidate: Dict,
+    *,
+    repo_root: Optional[Path] = None,
+) -> Dict[str, object]:
+    """Verify and resolve one sealed V4 catalog decision before FFmpeg runs."""
+
+    _reject_v4_music_overrides()
+    if not bool(candidate.get("background_music", False)):
+        raise RuntimeError(
+            "bf_editorial_inset_v4 requires the sealed licensed music layer"
+        )
+    decision = candidate.get("musicRoutingDecision")
+    track = candidate.get("musicCatalogTrack")
+    if not isinstance(decision, dict):
+        raise RuntimeError(
+            "bf_editorial_inset_v4 requires a sealed musicRoutingDecision"
+        )
+    if not isinstance(track, dict):
+        raise RuntimeError(
+            "bf_editorial_inset_v4 requires an exact musicCatalogTrack entry"
+        )
+
+    resolved_root = (
+        Path(repo_root).expanduser().resolve()
+        if repo_root is not None
+        else Path(__file__).resolve().parents[2]
+    )
+    declared_catalog_path = resolved_root / VIRAL_MUSIC_CATALOG_RELATIVE_PATH
+    if declared_catalog_path.is_symlink():
+        raise RuntimeError("V4 music catalog must not be a symlink")
+    catalog_path = declared_catalog_path.resolve()
+    try:
+        catalog_path.relative_to(resolved_root)
+    except ValueError as error:
+        raise RuntimeError("V4 music catalog must stay inside the repository") from error
+    try:
+        verified_decision = verify_music_routing_decision(
+            decision,
+            candidate=candidate,
+            catalog_path=catalog_path,
+            repository_root=resolved_root,
+            # The renderer verifies the selected bytes below. Avoid hashing
+            # every catalog asset for every short at this boundary.
+            verify_assets=False,
+        )
+    except MusicRouterError as error:
+        raise RuntimeError(f"invalid V4 music routing decision: {error}") from error
+    if (
+        verified_decision.get("catalogContentHash")
+        != VIRAL_MUSIC_CATALOG_CONTENT_HASH
+    ):
+        raise RuntimeError(
+            "musicRoutingDecision uses an unauthorized V4 music catalog"
+        )
+    if verified_decision.get("catalogTrack") != track:
+        raise RuntimeError(
+            "musicCatalogTrack does not match the sealed routing decision"
+        )
+
+    expected_versions = {
+        "catalogVersion": VIRAL_MUSIC_CATALOG_VERSION,
+        "routerVersion": SEMANTIC_MUSIC_ROUTER_VERSION,
+        "rotationVersion": MUSIC_ROTATION_VERSION,
+    }
+    for field, expected in expected_versions.items():
+        if str(verified_decision.get(field) or "") != expected:
+            raise RuntimeError(
+                f"musicRoutingDecision {field} does not match the active V4 contract"
+            )
+
+    track_id = str(verified_decision.get("trackId") or "").strip()
+    if str(track.get("trackId") or "") != track_id:
+        raise RuntimeError("musicRoutingDecision trackId does not bind musicCatalogTrack")
+
+    profile = str(
+        verified_decision.get("treatmentProfile") or ""
+    ).strip().lower()
+    if profile not in MOTIVATIONAL_MUSIC_PROFILE_SETTINGS:
+        raise RuntimeError("musicRoutingDecision treatmentProfile is invalid")
+    if str(track.get("treatmentProfile") or "").strip().lower() != profile:
+        raise RuntimeError(
+            "musicRoutingDecision treatmentProfile does not bind musicCatalogTrack"
+        )
+    candidate_profile = str(candidate.get("music_profile") or "").strip().lower()
+    if candidate_profile and candidate_profile != profile:
+        raise RuntimeError(
+            "candidate music_profile does not bind musicRoutingDecision"
+        )
+    start_value = verified_decision.get("startSeconds")
+    if isinstance(start_value, bool):
+        raise RuntimeError("musicRoutingDecision startSeconds must be numeric")
+    try:
+        start_seconds = float(start_value)
+        catalog_start_seconds = float(track.get("recommendedOffsetSeconds"))
+        duration_seconds = float(track.get("durationSeconds"))
+    except (TypeError, ValueError) as error:
+        raise RuntimeError("V4 music timing metadata must be numeric") from error
+    if not all(
+        math.isfinite(value)
+        for value in (start_seconds, catalog_start_seconds, duration_seconds)
+    ):
+        raise RuntimeError("V4 music timing metadata must be finite")
+    if not math.isclose(
+        start_seconds,
+        catalog_start_seconds,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ):
+        raise RuntimeError(
+            "musicRoutingDecision startSeconds does not bind the catalog offset"
+        )
+    if start_seconds < 0.0 or start_seconds >= duration_seconds:
+        raise RuntimeError("musicRoutingDecision startSeconds is outside the track")
+
+    relative_path_text = str(track.get("relativePath") or "").strip()
+    declared_asset_path = resolved_root / Path(relative_path_text)
+    if declared_asset_path.is_symlink():
+        raise RuntimeError("V4 music asset must not be a symlink")
+    try:
+        asset_path = resolve_music_asset_path(
+            track,
+            catalog_path=catalog_path,
+            repository_root=resolved_root,
+        )
+    except MusicRouterError as error:
+        raise RuntimeError(f"V4 music asset path is invalid: {error}") from error
+    try:
+        asset_path.relative_to(resolved_root)
+    except ValueError as error:
+        raise RuntimeError("V4 music asset must stay inside the repository") from error
+    if not asset_path.is_file():
+        raise RuntimeError(f"V4 music asset is missing: {relative_path_text}")
+
+    expected_sha256 = str(track.get("sha256") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise RuntimeError("musicCatalogTrack.sha256 must be a sha256 hash")
+    expected_byte_length = track.get("byteLength")
+    if (
+        isinstance(expected_byte_length, bool)
+        or not isinstance(expected_byte_length, int)
+        or expected_byte_length <= 0
+    ):
+        raise RuntimeError("musicCatalogTrack.byteLength must be a positive integer")
+    actual_receipt = _music_asset_receipt(str(asset_path))
+    if actual_receipt["sha256"] != expected_sha256:
+        raise RuntimeError("V4 music asset sha256 does not match musicCatalogTrack")
+    if actual_receipt["byteLength"] != expected_byte_length:
+        raise RuntimeError("V4 music asset byteLength does not match musicCatalogTrack")
+
+    catalog_hash = str(verified_decision["catalogContentHash"])
+    declared_decision_hash = str(verified_decision["contentHash"])
+    viral_receipt = {
+        **actual_receipt,
+        "trackId": track_id,
+        "relativePath": relative_path_text,
+        "title": track.get("title"),
+        "creator": track.get("creator"),
+        "sourcePageUrl": track.get("sourcePageUrl"),
+        "licenseUrl": track.get("licenseUrl"),
+        "aiGenerated": track.get("aiGenerated"),
+        "contentIdRegistered": track.get("contentIdRegistered"),
+        "catalogVersion": verified_decision["catalogVersion"],
+        "catalogContentHash": catalog_hash,
+        "routerVersion": verified_decision["routerVersion"],
+        "rotationVersion": verified_decision["rotationVersion"],
+        "routingDecisionHash": declared_decision_hash,
+        "treatmentProfile": profile,
+        "startSeconds": start_seconds,
+        "verifiedBeforeFfmpeg": True,
+    }
+    return {
+        "path": str(asset_path),
+        "profile": profile,
+        "startSeconds": start_seconds,
+        "assetReceipt": actual_receipt,
+        "viralAssetReceipt": viral_receipt,
+        "routingDecision": dict(verified_decision),
+    }
+
+
 def _motivational_payoff_start(caption_cues: List[Dict], duration: float) -> float:
     phrase_ids = [
         int(cue["phrase_id"])
@@ -3182,13 +3431,18 @@ def _motivational_audio_filter(
     brand_tail_audio_transition_seconds: Optional[float] = None,
     brand_tail_music_release_seconds: Optional[float] = None,
     loudness_lra_target: float = 7.0,
+    dynamic_music_plan: Optional[Dict] = None,
 ) -> str:
     music_fade_start = max(0.0, duration - MOTIVATIONAL_MUSIC_FADE_OUT_SECONDS)
     output_fade_start = max(0.0, duration - ENDING_FADE_SECONDS)
-    music_volume = _motivational_music_volume_filter(
-        duration,
-        music_profile,
-        payoff_start,
+    music_volume = (
+        volume_filter_from_plan(dynamic_music_plan)
+        if dynamic_music_plan is not None
+        else _motivational_music_volume_filter(
+            duration,
+            music_profile,
+            payoff_start,
+        )
     )
     mute_start = (
         max(0.0, float(brand_tail_start_seconds))
@@ -3301,6 +3555,7 @@ def _raw_video_command(
     brand_tail_audio_transition_seconds: Optional[float] = None,
     brand_tail_music_release_seconds: Optional[float] = None,
     audio_lra_target: float = 7.0,
+    dynamic_music_plan: Optional[Dict] = None,
 ) -> List[str]:
     width, height = output_size
     loudness_filter = (
@@ -3324,6 +3579,11 @@ def _raw_video_command(
         "-i", audio_path,
     ]
     use_music = bool(music_path and duration and not lossless)
+    if dynamic_music_plan is not None and not use_music:
+        raise RuntimeError(
+            "a semantic dynamic-music plan requires an enabled, resolved "
+            "music track and a non-lossless output"
+        )
     if use_music:
         command.extend(
             [
@@ -3361,6 +3621,7 @@ def _raw_video_command(
                         brand_tail_music_release_seconds
                     ),
                     loudness_lra_target=audio_lra_target,
+                    dynamic_music_plan=dynamic_music_plan,
                 ),
                 "-map", "[aout]",
             ]
@@ -5181,6 +5442,9 @@ def _reframe_vertical(
     brand_tail_transition_seconds: Optional[float] = None,
     brand_tail_audio_transition_seconds: Optional[float] = None,
     brand_tail_music_release_seconds: Optional[float] = None,
+    dynamic_music_plan: Optional[Dict] = None,
+    resolved_music_path: Optional[str] = None,
+    resolved_music_start_seconds: Optional[float] = None,
 ) -> str:
     """Crop the cut clip to the target aspect ratio, tracking faces if possible."""
     try:
@@ -5557,20 +5821,55 @@ def _reframe_vertical(
         enhancer_requested,
         enhancer_runtime,
     )
-    selected_music_profile = _resolve_motivational_music_profile(music_profile)
-    music_path = _resolve_motivational_music_track(
-        background_music,
-        selected_music_profile,
+    selected_music_profile = (
+        str(music_profile or "").strip().lower()
+        if resolved_music_path
+        else _resolve_motivational_music_profile(music_profile)
     )
+    if selected_music_profile not in MOTIVATIONAL_MUSIC_PROFILE_SETTINGS:
+        raise RuntimeError("resolved motivational music profile is invalid")
+    if render_profile in {BF_EDITORIAL_INSET_V3, BF_EDITORIAL_INSET_V4}:
+        if dynamic_music_plan is None:
+            raise RuntimeError(
+                f"{render_profile} requires a sealed semantic music plan"
+            )
+        validate_dynamic_music_plan(dynamic_music_plan)
+        if not background_music:
+            raise RuntimeError(
+                f"{render_profile} requires the licensed music layer"
+            )
+    music_path = (
+        str(Path(resolved_music_path).resolve())
+        if resolved_music_path
+        else _resolve_motivational_music_track(
+            background_music,
+            selected_music_profile,
+        )
+    )
+    if music_path and not Path(music_path).is_file():
+        raise RuntimeError("resolved motivational music track is missing")
+    if render_profile in {BF_EDITORIAL_INSET_V3, BF_EDITORIAL_INSET_V4} and not music_path:
+        raise RuntimeError(
+            f"{render_profile} could not resolve its licensed music track"
+        )
     music_payoff_seconds = _motivational_payoff_start(caption_cues, clip_duration)
     profile_start = float(
         MOTIVATIONAL_MUSIC_PROFILE_SETTINGS[selected_music_profile]["start_seconds"]
     )
-    music_start_seconds = (
-        LOCAL_MOTIVATIONAL_MUSIC_START_SECONDS
-        if LOCAL_MOTIVATIONAL_MUSIC_TRACK.strip()
-        else profile_start
-    )
+    if render_profile == BF_EDITORIAL_INSET_V4:
+        if resolved_music_start_seconds is None:
+            raise RuntimeError(
+                "bf_editorial_inset_v4 requires its sealed music start offset"
+            )
+        music_start_seconds = float(resolved_music_start_seconds)
+        if not math.isfinite(music_start_seconds) or music_start_seconds < 0.0:
+            raise RuntimeError("bf_editorial_inset_v4 music start offset is invalid")
+    else:
+        music_start_seconds = (
+            LOCAL_MOTIVATIONAL_MUSIC_START_SECONDS
+            if LOCAL_MOTIVATIONAL_MUSIC_TRACK.strip()
+            else profile_start
+        )
     if music_path:
         print(
             f"[clip/local] background music: {Path(music_path).name} "
@@ -5649,6 +5948,7 @@ def _reframe_vertical(
                 music_start_seconds=music_start_seconds,
                 music_profile=selected_music_profile,
                 music_payoff_seconds=music_payoff_seconds,
+                dynamic_music_plan=dynamic_music_plan,
                 brand_tail_start_seconds=(
                     brand_tail_start
                     if resolved_brand_tail_seconds > 0.0
@@ -6344,6 +6644,9 @@ def crop_clip_local(
     brand_tail_transition_seconds: Optional[float] = None,
     brand_tail_audio_transition_seconds: Optional[float] = None,
     brand_tail_music_release_seconds: Optional[float] = None,
+    dynamic_music_plan: Optional[Dict] = None,
+    resolved_music_path: Optional[str] = None,
+    resolved_music_start_seconds: Optional[float] = None,
 ) -> str:
     """Cut, reframe, and burn dynamic captions into one highlight."""
     fallback_cut_path = out_path + ".cut.mkv"
@@ -6449,6 +6752,9 @@ def crop_clip_local(
             brand_tail_music_release_seconds=(
                 brand_tail_music_release_seconds
             ),
+            dynamic_music_plan=dynamic_music_plan,
+            resolved_music_path=resolved_music_path,
+            resolved_music_start_seconds=resolved_music_start_seconds,
         )
     finally:
         if not cut_is_persistent and os.path.exists(cut_path):
@@ -6825,7 +7131,28 @@ def crop_highlights_local(
     brand_tail_profile: Optional[str] = None,
     brand_tail_seconds: Optional[float] = None,
     _allow_parallel: bool = True,
+    _v4_music_bindings: Optional[List[Optional[Dict[str, object]]]] = None,
 ) -> List[Dict]:
+    if _v4_music_bindings is None:
+        _v4_music_bindings = []
+        for highlight in highlights:
+            highlight_profile = (
+                str(highlight["render_profile"])
+                if highlight.get("render_profile")
+                else render_profile
+            )
+            if highlight_profile == BF_EDITORIAL_INSET_V4:
+                if highlight.get("source_beats"):
+                    raise RuntimeError(
+                        "bf_editorial_inset_v4 does not support composite source beats"
+                    )
+                _v4_music_bindings.append(
+                    _resolve_v4_viral_music_binding(highlight)
+                )
+            else:
+                _v4_music_bindings.append(None)
+    elif len(_v4_music_bindings) != len(highlights):
+        raise RuntimeError("internal V4 music binding count does not match highlights")
     out_dir = out_dir or LOCAL_OUTPUT_DIR
     os.makedirs(out_dir, exist_ok=True)
     try:
@@ -6850,7 +7177,7 @@ def crop_highlights_local(
         )
 
         def render_one(job):
-            index, highlight, staging_root = job
+            index, highlight, staging_root, music_binding = job
             final_path = Path(out_dir) / f"short_{index:02d}.mp4"
             job_dir = staging_root / f"job_{index:02d}"
             try:
@@ -6866,6 +7193,7 @@ def crop_highlights_local(
                     brand_tail_profile=brand_tail_profile,
                     brand_tail_seconds=brand_tail_seconds,
                     _allow_parallel=False,
+                    _v4_music_bindings=[music_binding],
                 )
                 if len(rendered) != 1:
                     raise RuntimeError(
@@ -6907,7 +7235,7 @@ def crop_highlights_local(
         with _local_temporary_directory("shorts-render-batch-") as staging_dir:
             staging_root = Path(staging_dir)
             jobs = [
-                (index, highlight, staging_root)
+                (index, highlight, staging_root, _v4_music_bindings[index - 1])
                 for index, highlight in enumerate(highlights, start=1)
             ]
             with ThreadPoolExecutor(
@@ -6918,6 +7246,7 @@ def crop_highlights_local(
 
     results: List[Dict] = []
     for i, h in enumerate(highlights, 1):
+        v4_music_binding = _v4_music_bindings[i - 1]
         out_path = os.path.join(out_dir, f"short_{i:02d}.mp4")
         print(f"[clip/local] {i}/{len(highlights)}: {h.get('title', '(untitled)')}", flush=True)
         render_metadata: Dict = {}
@@ -6979,6 +7308,13 @@ def crop_highlights_local(
                         "context_summary",
                     )
                 }
+                dynamic_music_plan = None
+                resolved_dynamic_music_profile = None
+                resolved_dynamic_music_track = None
+                resolved_dynamic_music_start_seconds = None
+                dynamic_music_asset_receipt = None
+                viral_music_asset_receipt = None
+                music_routing_decision = None
                 requested_render_start = float(
                     h.get("render_start_time", h["start_time"])
                 )
@@ -7187,6 +7523,88 @@ def crop_highlights_local(
                             3,
                         ),
                     }
+                    if resolved_render_profile == BF_EDITORIAL_INSET_V3:
+                        spoken_end_relative = max(
+                            0.001,
+                            min(
+                                resolved_render_duration,
+                                float(
+                                    h.get("speech_end_time", requested_render_end)
+                                )
+                                - actual_render_start,
+                            ),
+                        )
+                        # Resolve the active profile and exact licensed bytes
+                        # once. Both the semantic plan and encoder receive the
+                        # same values even when an operator profile/track
+                        # override is configured.
+                        resolved_dynamic_music_profile = (
+                            _resolve_motivational_music_profile(
+                                str(h.get("music_profile") or "")
+                            )
+                        )
+                        resolved_dynamic_music_track = _resolve_motivational_music_track(
+                            bool(h.get("background_music", False)),
+                            resolved_dynamic_music_profile,
+                        )
+                        if not resolved_dynamic_music_track:
+                            raise RuntimeError(
+                                "bf_editorial_inset_v3 requires an enabled, "
+                                "resolved licensed music track"
+                            )
+                        dynamic_music_asset_receipt = _music_asset_receipt(
+                            resolved_dynamic_music_track
+                        )
+                        dynamic_music_plan = build_dynamic_music_plan(
+                            h,
+                            qa_cues,
+                            resolved_render_duration,
+                            spoken_end_relative,
+                            natural_tail_end_seconds=brand_tail_start_seconds,
+                            music_profile=resolved_dynamic_music_profile,
+                        )
+                    if resolved_render_profile == BF_EDITORIAL_INSET_V4:
+                        if not isinstance(v4_music_binding, dict):
+                            raise RuntimeError(
+                                "bf_editorial_inset_v4 is missing its verified "
+                                "renderer music binding"
+                            )
+                        spoken_end_relative = max(
+                            0.001,
+                            min(
+                                resolved_render_duration,
+                                float(
+                                    h.get("speech_end_time", requested_render_end)
+                                )
+                                - actual_render_start,
+                            ),
+                        )
+                        resolved_dynamic_music_profile = str(
+                            v4_music_binding["profile"]
+                        )
+                        resolved_dynamic_music_track = str(
+                            v4_music_binding["path"]
+                        )
+                        resolved_dynamic_music_start_seconds = float(
+                            v4_music_binding["startSeconds"]
+                        )
+                        dynamic_music_asset_receipt = dict(
+                            v4_music_binding["assetReceipt"]
+                        )
+                        viral_music_asset_receipt = dict(
+                            v4_music_binding["viralAssetReceipt"]
+                        )
+                        music_routing_decision = dict(
+                            v4_music_binding["routingDecision"]
+                        )
+                        dynamic_music_plan = build_dynamic_music_plan(
+                            h,
+                            qa_cues,
+                            resolved_render_duration,
+                            spoken_end_relative,
+                            natural_tail_end_seconds=brand_tail_start_seconds,
+                            music_profile=resolved_dynamic_music_profile,
+                        )
                     render_metadata = {
                         "render_profile": resolved_render_profile,
                         "layout_profile": (
@@ -7212,6 +7630,20 @@ def crop_highlights_local(
                             )
                             else "kinetic_editorial_v1"
                         ),
+                        "music_mix_profile": (
+                            dynamic_music_plan["planVersion"]
+                            if dynamic_music_plan is not None
+                            else "licensed_low_bed_v1"
+                        ),
+                        "music_profile": (
+                            resolved_dynamic_music_profile
+                            if resolved_dynamic_music_profile is not None
+                            else h.get("music_profile")
+                        ),
+                        "resolved_music_profile": resolved_dynamic_music_profile,
+                        "dynamic_music_asset_receipt": dynamic_music_asset_receipt,
+                        "dynamic_music_plan": dynamic_music_plan,
+                        "dynamic_music_applied": False,
                         "artificial_cut_limit": 0,
                         "winner_packaging_decision": (
                             duration_packaging_decision(
@@ -7467,6 +7899,13 @@ def crop_highlights_local(
                             brand_tail_event,
                         ],
                     }
+                    if resolved_render_profile == BF_EDITORIAL_INSET_V4:
+                        render_metadata["viral_music_asset_receipt"] = (
+                            viral_music_asset_receipt
+                        )
+                        render_metadata["music_routing_decision"] = (
+                            music_routing_decision
+                        )
                 crop_clip_local(
                     source_path,
                     requested_render_start,
@@ -7524,7 +7963,9 @@ def crop_highlights_local(
                     caption_context=resolved_caption_context,
                     background_music=bool(h.get("background_music", False)),
                     music_profile=(
-                        str(h["music_profile"])
+                        str(resolved_dynamic_music_profile)
+                        if resolved_dynamic_music_profile is not None
+                        else str(h["music_profile"])
                         if h.get("music_profile")
                         else None
                     ),
@@ -7551,7 +7992,20 @@ def crop_highlights_local(
                         if _is_bf_editorial_profile(resolved_render_profile)
                         else None
                     ),
+                    dynamic_music_plan=dynamic_music_plan,
+                    resolved_music_path=resolved_dynamic_music_track,
+                    resolved_music_start_seconds=(
+                        resolved_dynamic_music_start_seconds
+                    ),
                 )
+                if resolved_render_profile == BF_EDITORIAL_INSET_V3:
+                    # Reaching this point means ffmpeg accepted the V3
+                    # three-input filter graph and emitted the requested
+                    # output.  This execution receipt is sealed into render
+                    # evidence and checked again by editorial QA.
+                    render_metadata["dynamic_music_applied"] = True
+                if resolved_render_profile == BF_EDITORIAL_INSET_V4:
+                    render_metadata["dynamic_music_applied"] = True
                 if _is_winner_packaging_profile(resolved_render_profile):
                     render_metadata["winner_packaging_qa_report"] = (
                         evaluate_winner_packaging_evidence(

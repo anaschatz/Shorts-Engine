@@ -11,16 +11,23 @@ import json
 import math
 import unicodedata
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Sequence
 
 from .profiles import (
     BF_EDITORIAL_INSET_V2,
+    BF_EDITORIAL_INSET_V3,
     BF_FEED_STOP_FORMAT_V1,
+    BF_FEED_STOP_FORMAT_V2,
+    BF_FEED_STOP_FORMAT_V3,
     BF_FEED_STOP_V1,
+    BF_FEED_STOP_V2,
     BF_REFERENCE_TAIL_V2,
     BF_SMOOTH_TAIL_V3,
     BF_SMOOTH_TAIL_V4,
     BF_SMOOTH_TAIL_V5,
+    DELIVERY_QUALITY_TRUSTED_PROVIDER_IDENTITY,
+    SELECTION_PROFILES,
+    SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY,
 )
 
 
@@ -61,6 +68,25 @@ FEED_STOP_REPLAY_PROFILE_TUPLE = (
     BF_EDITORIAL_INSET_V2,
     BF_FEED_STOP_FORMAT_V1,
 )
+FEED_STOP_V2_REPLAY_PROFILE_TUPLE = (
+    PRODUCTION_CONTENT_PROFILE,
+    BF_FEED_STOP_V1,
+    BF_EDITORIAL_INSET_V2,
+    BF_FEED_STOP_FORMAT_V2,
+)
+FEED_STOP_V3_REPLAY_PROFILE_TUPLE = (
+    PRODUCTION_CONTENT_PROFILE,
+    BF_FEED_STOP_V2,
+    BF_EDITORIAL_INSET_V3,
+    BF_FEED_STOP_FORMAT_V3,
+)
+FEED_STOP_REPLAY_PROFILE_TUPLES = frozenset(
+    {
+        FEED_STOP_REPLAY_PROFILE_TUPLE,
+        FEED_STOP_V2_REPLAY_PROFILE_TUPLE,
+        FEED_STOP_V3_REPLAY_PROFILE_TUPLE,
+    }
+)
 # CandidateDecision is also the canonical explicit-human label consumed by
 # Autoresearch replay.  Admission here does not grant render authorization;
 # production_workflow independently requires PRODUCTION_CANDIDATE_PROFILE_TUPLE.
@@ -70,6 +96,14 @@ CANDIDATE_DECISION_PROFILE_RULES = {
         "maximum_speech_seconds": 22.0,
     },
     FEED_STOP_REPLAY_PROFILE_TUPLE: {
+        "minimum_speech_seconds": 8.0,
+        "maximum_speech_seconds": 24.0,
+    },
+    FEED_STOP_V2_REPLAY_PROFILE_TUPLE: {
+        "minimum_speech_seconds": 8.0,
+        "maximum_speech_seconds": 24.0,
+    },
+    FEED_STOP_V3_REPLAY_PROFILE_TUPLE: {
         "minimum_speech_seconds": 8.0,
         "maximum_speech_seconds": 24.0,
     },
@@ -475,6 +509,328 @@ def _verify_feed_stop_speech_cleanliness(
     return verified
 
 
+def _verify_feed_stop_spoken_clarity(
+    candidate: Dict,
+    source_hash: str,
+    *,
+    transcript_timing_hash: Optional[str] = None,
+    semantic_authority: Optional[str] = None,
+) -> Dict:
+    """Verify source-bound audibility and fluency evidence for feed-stop clips.
+
+    V2 retains the original fully passing SpokenClarity contract.  V3 assigns
+    meaning to HookGate V4, so the older lexical semantic approximations cannot
+    veto a passing V4 report; every provider, ASR, audibility and fluency reason
+    remains fail-closed.
+    """
+
+    from .spoken_clarity import verify_spoken_clarity_report
+
+    report = candidate.get("spokenClarityReport")
+    if not isinstance(report, dict):
+        raise ArtifactBindingError(
+            "feed-stop candidate lacks a spoken-clarity report"
+        )
+    speech_start = candidate.get("speech_start_time", candidate.get("start_time"))
+    speech_end = candidate.get("speech_end_time", candidate.get("end_time"))
+    verified = verify_spoken_clarity_report(
+        report,
+        source_hash=source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+        speech_interval=(speech_start, speech_end),
+        require_pass=(semantic_authority != "hook_gate_v4"),
+    )
+    provider_identity = verified.get("providerIdentity")
+    if not isinstance(provider_identity, dict) or any(
+        provider_identity.get(field) != expected
+        for field, expected in SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY.items()
+    ):
+        raise ArtifactBindingError(
+            "feed-stop V2 spoken clarity lacks the trusted local provider identity"
+        )
+    counts = verified["counts"]
+    opening_asr = verified["evidence"]["openingAsr"]
+    aliases = {
+        "spokenClarityStatus": verified["status"],
+        "spokenClarityEligible": verified["eligible"],
+        "spokenClarityRejectionReasons": verified["rejectionReasons"],
+        "spokenClarityReviewReasons": verified["reviewReasons"],
+        "spoken_clarity_decision_version": verified["decisionVersion"],
+        "spoken_clarity_status": verified["status"],
+        "spoken_clarity_eligible": verified["eligible"],
+        "spoken_clarity_reject_reasons": verified["rejectionReasons"],
+        "spoken_clarity_review_reasons": verified["reviewReasons"],
+        "spoken_clarity_deterministic_reasons": verified[
+            "deterministicReasons"
+        ],
+        "spoken_clarity_provider_status": verified["providerStatus"],
+        "spoken_clarity_adjacent_duplicate_count": counts[
+            "adjacentDuplicates"
+        ],
+        "spoken_clarity_repeated_phrase_count": counts[
+            "repeatedPhraseRestarts"
+        ],
+        "spoken_clarity_searching_pause_count": counts[
+            "searchingInternalPauses"
+        ],
+        "spoken_clarity_opening_asr_mean_confidence": opening_asr[
+            "meanWordConfidence"
+        ],
+        "spoken_clarity_opening_asr_low_ratio": opening_asr[
+            "lowConfidenceWordRatio"
+        ],
+        "spoken_clarity_opening_asr_token_match_ratio": opening_asr[
+            "tokenMatchRatio"
+        ],
+    }
+    if any(candidate.get(field) != expected for field, expected in aliases.items()):
+        raise ArtifactBindingError(
+            "spoken-clarity candidate aliases do not match the sealed report"
+        )
+    if semantic_authority == "hook_gate_v4":
+        semantic_only_reasons = {
+            "spoken_clarity_hook_subject_or_claim_missing",
+            "spoken_clarity_point_quote_missing",
+            "spoken_clarity_point_quote_unaligned",
+            "spoken_clarity_opening_point_anchor_missing",
+        }
+        acoustic_or_fluency_reasons = [
+            reason
+            for reason in verified.get("deterministicReasons", [])
+            if reason not in semantic_only_reasons
+        ]
+        if acoustic_or_fluency_reasons:
+            raise ArtifactBindingError(
+                "spoken-clarity acoustic/fluency evidence is not eligible"
+            )
+    return verified
+
+
+def _verify_feed_stop_delivery_quality(
+    candidate: Dict,
+    source_hash: str,
+    *,
+    transcript_timing_hash: Optional[str] = None,
+    spoken_clarity_report: Optional[Dict] = None,
+) -> Dict:
+    """Verify V3 observable delivery evidence and every exported alias."""
+
+    from .delivery_quality import verify_delivery_quality_report
+
+    report = candidate.get("deliveryQualityReport")
+    if not isinstance(report, dict):
+        raise ArtifactBindingError(
+            "feed-stop V3 candidate lacks a delivery-quality report"
+        )
+    speech_start = candidate.get("speech_start_time", candidate.get("start_time"))
+    speech_end = candidate.get("speech_end_time", candidate.get("end_time"))
+    verified = verify_delivery_quality_report(
+        report,
+        source_hash=source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+        speech_interval=(speech_start, speech_end),
+        require_pass=True,
+    )
+    provider_identity = verified.get("providerIdentity")
+    if not isinstance(provider_identity, dict) or any(
+        provider_identity.get(field) != expected
+        for field, expected in DELIVERY_QUALITY_TRUSTED_PROVIDER_IDENTITY.items()
+    ):
+        raise ArtifactBindingError(
+            "feed-stop V3 delivery quality lacks the trusted local provider identity"
+        )
+    aliases = {
+        "deliveryQualityStatus": verified["status"],
+        "deliveryQualityEligible": verified["eligible"],
+        "deliveryQualityStrength": verified["deliveryStrength"],
+        "deliveryQualityRejectionReasons": verified["rejectionReasons"],
+        "deliveryQualityReviewReasons": verified["reviewReasons"],
+        "delivery_quality_decision_version": verified["decisionVersion"],
+        "delivery_quality_status": verified["status"],
+        "delivery_quality_eligible": verified["eligible"],
+        "delivery_quality_strength": verified["deliveryStrength"],
+        "delivery_quality_reject_reasons": verified["rejectionReasons"],
+        "delivery_quality_review_reasons": verified["reviewReasons"],
+        "delivery_quality_provider_status": verified["providerStatus"],
+    }
+    if any(candidate.get(field) != expected for field, expected in aliases.items()):
+        raise ArtifactBindingError(
+            "delivery-quality candidate aliases do not match the sealed report"
+        )
+    embedded_clarity = (verified.get("inputs") or {}).get(
+        "spokenClarityReport"
+    )
+    if (
+        spoken_clarity_report is not None
+        and embedded_clarity != spoken_clarity_report
+    ):
+        raise ArtifactBindingError(
+            "delivery-quality report is not bound to the candidate SpokenClarity report"
+        )
+    return verified
+
+
+def _verify_feed_stop_hook_gate_v4(
+    candidate: Dict,
+    source_hash: str,
+    *,
+    transcript_timing_hash: Optional[str] = None,
+    timed_words: Optional[Sequence[Dict]] = None,
+) -> Dict:
+    """Recompute and alias-bind V4 from the exact replay timed words."""
+
+    from .hook_gate_v4 import (
+        build_hook_gate_v4_report,
+        evaluate_hook_gate_v4,
+        transcript_word_timing_hash,
+        verify_hook_gate_v4_report,
+    )
+
+    if transcript_timing_hash is None or timed_words is None:
+        raise ArtifactBindingError(
+            "feed-stop V3 HookGate verification requires the exact replay transcript"
+        )
+    report = candidate.get("hookGateReport")
+    if not isinstance(report, dict):
+        raise ArtifactBindingError(
+            "feed-stop V3 candidate lacks a HookGate V4 report"
+        )
+    speech_start = candidate.get("speech_start_time", candidate.get("start_time"))
+    speech_end = candidate.get("speech_end_time", candidate.get("end_time"))
+    _hash(
+        transcript_timing_hash,
+        "transcriptTimingHash",
+    )
+    hook_word_timing_hash = transcript_word_timing_hash(timed_words)
+    try:
+        verified = verify_hook_gate_v4_report(
+            report,
+            source_hash=source_hash,
+            transcript_timing_hash=hook_word_timing_hash,
+            speech_interval=(speech_start, speech_end),
+            require_pass=True,
+        )
+        recomputed = evaluate_hook_gate_v4(
+            candidate,
+            timed_words,
+            policy=SELECTION_PROFILES[BF_FEED_STOP_V2],
+        )
+        if (
+            recomputed.get("hook_gate_status") != "pass"
+            or recomputed.get("hook_gate_eligible") is not True
+        ):
+            raise ArtifactBindingError(
+                "feed-stop V3 HookGate recomputation is not eligible"
+            )
+        expected = build_hook_gate_v4_report(
+            recomputed,
+            source_hash=source_hash,
+            transcript_timing_hash=hook_word_timing_hash,
+            render_settings=candidate,
+            experiment={
+                "experimentId": candidate.get("experiment_id"),
+                "cohortId": candidate.get("experiment_cohort"),
+                "changedAxes": candidate.get("changedAxes") or [],
+            },
+        )
+    except ArtifactBindingError:
+        raise
+    except (TypeError, ValueError) as error:
+        raise ArtifactBindingError(
+            f"feed-stop V3 HookGate V4 report is invalid: {error}"
+        ) from error
+    if verified != expected:
+        raise ArtifactBindingError(
+            "HookGate V4 candidate aliases do not match the sealed report"
+        )
+    return verified
+
+
+def _verified_replay_timed_words(
+    replay_transcript: object,
+    expected_timing_hash: object,
+) -> list[Dict]:
+    """Validate one exact replay transcript and detach all source word bodies."""
+
+    if not isinstance(replay_transcript, dict):
+        raise ArtifactBindingError(
+            "feed-stop V3 approval requires the exact replay transcript"
+        )
+    snapshot = validate_timed_transcript(
+        replay_transcript,
+        require_timed_words=True,
+    )
+    expected_hash = _hash(expected_timing_hash, "transcriptTimingHash")
+    if transcript_timing_hash(snapshot) != expected_hash:
+        raise ArtifactBindingError(
+            "feed-stop V3 replay transcript timing hash is stale"
+        )
+    return [
+        dict(word)
+        for segment in snapshot["segments"]
+        for word in (segment.get("words") or [])
+    ]
+
+
+def _verify_feed_stop_v3_evidence(
+    candidate: Dict,
+    source_hash: str,
+    *,
+    transcript_timing_hash: Optional[str] = None,
+    replay_transcript: Optional[Dict] = None,
+) -> Dict:
+    """Verify the complete research-only V3 approval evidence bundle."""
+
+    timed_words = _verified_replay_timed_words(
+        replay_transcript,
+        transcript_timing_hash,
+    )
+    hook_gate = _verify_feed_stop_hook_gate_v4(
+        candidate,
+        source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+        timed_words=timed_words,
+    )
+    spoken_clarity = _verify_feed_stop_spoken_clarity(
+        candidate,
+        source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+        semantic_authority="hook_gate_v4",
+    )
+    delivery_quality = _verify_feed_stop_delivery_quality(
+        candidate,
+        source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+        spoken_clarity_report=spoken_clarity,
+    )
+    speech_cleanliness = _verify_feed_stop_speech_cleanliness(
+        candidate,
+        source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+    )
+    evidence_transcript_hashes = {
+        spoken_clarity.get("transcriptTimingHash"),
+        delivery_quality.get("transcriptTimingHash"),
+        speech_cleanliness.get("transcriptTimingHash"),
+    }
+    if (
+        None in evidence_transcript_hashes
+        or len(evidence_transcript_hashes) != 1
+        or next(iter(evidence_transcript_hashes))
+        != _hash(transcript_timing_hash, "transcriptTimingHash")
+    ):
+        raise ArtifactBindingError(
+            "feed-stop V3 evidence reports reference different transcripts"
+        )
+    return {
+        "hookGateReport": hook_gate,
+        "spokenClarityReport": spoken_clarity,
+        "deliveryQualityReport": delivery_quality,
+        "speechCleanlinessReport": speech_cleanliness,
+        "semanticAuthority": "hook_gate_v4",
+    }
+
+
 def _semantic_source_cut_limit(candidate: Dict, source_cuts: Iterable[float]) -> int:
     cuts = sorted(float(value) for value in source_cuts)
     if not candidate.get("semantic_completion_source_cut_exception"):
@@ -508,6 +864,9 @@ def build_candidate_decision(
     decided_at: str,
     ranking_manifest_hash: str,
     notes: str = "",
+    *,
+    replay_transcript: Optional[Dict] = None,
+    transcript_timing_hash: Optional[str] = None,
 ) -> Dict:
     reviewer = str(reviewer or "").strip()
     decided_at = str(decided_at or "").strip()
@@ -526,8 +885,20 @@ def build_candidate_decision(
         raise ArtifactBindingError(
             "candidate profile tuple is not approved for a CandidateDecision"
         )
-    if profile_tuple == FEED_STOP_REPLAY_PROFILE_TUPLE:
+    v3_evidence = None
+    if profile_tuple == FEED_STOP_V3_REPLAY_PROFILE_TUPLE:
+        # The V4 report is intentionally excluded from normalized candidate
+        # identity, so verification must consume the original ranking record.
+        v3_evidence = _verify_feed_stop_v3_evidence(
+            candidate,
+            source_hash,
+            transcript_timing_hash=transcript_timing_hash,
+            replay_transcript=replay_transcript,
+        )
+    elif profile_tuple in FEED_STOP_REPLAY_PROFILE_TUPLES:
         _verify_feed_stop_speech_cleanliness(normalized, source_hash)
+    if profile_tuple == FEED_STOP_V2_REPLAY_PROFILE_TUPLE:
+        _verify_feed_stop_spoken_clarity(normalized, source_hash)
     speech_start = normalized.get("speech_start_time")
     speech_end = normalized.get("speech_end_time")
     duration = (
@@ -551,24 +922,32 @@ def build_candidate_decision(
     actual_candidate_hash = candidate_hash(normalized, source_hash)
     if _hash(candidate.get("candidate_hash"), "candidate.candidate_hash") != actual_candidate_hash:
         raise ArtifactBindingError("candidate hash does not match the sealed ranking candidate")
-    return _seal(
-        {
-            "schemaVersion": 1,
-            "artifactType": "CandidateDecision",
-            "decision": "approved",
-            "rankingManifestHash": ranking_manifest_hash,
-            "sourceHash": source_hash,
-            "candidateHash": actual_candidate_hash,
-            "contentProfile": profile_tuple[0],
-            "selectionProfile": profile_tuple[1],
-            "renderProfile": profile_tuple[2],
-            "formatProfile": profile_tuple[3],
-            "candidate": normalized,
-            "reviewer": reviewer,
-            "decidedAt": decided_at,
-            "notes": str(notes or "").strip(),
-        }
-    )
+    payload = {
+        "schemaVersion": 1,
+        "artifactType": "CandidateDecision",
+        "decision": "approved",
+        "rankingManifestHash": ranking_manifest_hash,
+        "sourceHash": source_hash,
+        "candidateHash": actual_candidate_hash,
+        "contentProfile": profile_tuple[0],
+        "selectionProfile": profile_tuple[1],
+        "renderProfile": profile_tuple[2],
+        "formatProfile": profile_tuple[3],
+        "candidate": normalized,
+        "reviewer": reviewer,
+        "decidedAt": decided_at,
+        "notes": str(notes or "").strip(),
+    }
+    if v3_evidence is not None:
+        # hookGateReport is deliberately volatile for candidate identity.  Its
+        # exact reviewed body is nevertheless authority-bearing evidence, so
+        # bind it at the CandidateDecision boundary instead.
+        payload["hookGateReport"] = v3_evidence["hookGateReport"]
+        payload["transcriptTimingHash"] = _hash(
+            transcript_timing_hash,
+            "transcriptTimingHash",
+        )
+    return _seal(payload)
 
 
 def build_source_asset_manifest(
@@ -1221,6 +1600,9 @@ __all__ = [
     "CANDIDATE_DECISION_PROFILE_RULES",
     "CANDIDATE_PROFILE_FIELDS",
     "FEED_STOP_REPLAY_PROFILE_TUPLE",
+    "FEED_STOP_REPLAY_PROFILE_TUPLES",
+    "FEED_STOP_V2_REPLAY_PROFILE_TUPLE",
+    "FEED_STOP_V3_REPLAY_PROFILE_TUPLE",
     "PRODUCTION_CANDIDATE_PROFILE_TUPLE",
     "build_candidate_decision",
     "build_edit_plan",

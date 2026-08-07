@@ -196,13 +196,19 @@ Maintain a complete recent-publication ledger, including unpublished scheduled v
       "startTime": 0.0,
       "endTime": 10.0,
       "hook": "...",
-      "candidateText": "..."
+      "candidateText": "...",
+      "musicTrackId": "pixabay:126884"
     }
   ]
 }
 ```
 
 An empty ledger is valid only when there truly are no recent publications.
+Include both public and scheduled uploads. `bf_feed_stop_format_v4` reads the
+same explicit ledger through `main.py --recent-publications` and excludes the
+previous four `musicTrackId` values, so a five-upload window does not repeat a
+track. Keep the array ordered oldest-to-newest. It never reads hidden mutable
+history.
 
 ```bash
 python budget_friendly_ops.py originality \

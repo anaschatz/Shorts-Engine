@@ -219,6 +219,108 @@ _hook_gate_item_schema = (
 _hook_gate_item_schema["properties"].update(HOOK_GATE_V2_FIELDS)
 _hook_gate_item_schema["required"].extend(HOOK_GATE_V2_FIELDS)
 
+# Keep the semantic prompt marker local to the transport layer.  The V4
+# decision module is intentionally not imported here: structured-output
+# routing must remain lightweight and must not make local provider startup
+# depend on the deterministic evaluator.  A version-mirror test protects this
+# literal from drifting from the selection prompt contract.
+HOOK_GATE_V4_PROMPT_VERSION = "hook-gate-v4-semantic-v1.0.0"
+
+HOOK_GATE_V4_OPENING_UNIT_TYPES = (
+    "claim",
+    "rule",
+    "contradiction",
+    "tension",
+    "question_with_immediate_answer",
+    "story_setup",
+    "topic_intro",
+    "fragment",
+)
+HOOK_GATE_V4_MECHANISMS = (
+    "contradiction",
+    "concrete_rule",
+    "identity_threat",
+    "interpersonal_conflict",
+    "surprising_consequence",
+    "emotional_comparison",
+    "visual_metaphor",
+    "common_belief_challenge",
+    "none",
+)
+HOOK_GATE_V4_SCORE_FIELDS = (
+    "opening_sentence_clarity_score",
+    "topic_explicitness_score",
+    "standalone_comprehension_score",
+    "tension_or_relevance_score",
+    "opening_point_coherence_score",
+    "payoff_resolution_score",
+    "single_idea_focus_score",
+    "lexical_delivery_strength_score",
+    "hook_semantic_confidence_score",
+)
+HOOK_GATE_V4_BOOLEAN_FIELDS = (
+    "opening_unit_is_complete_claim",
+    "requires_external_context",
+    "unresolved_deictic_reference",
+    "host_or_attribution_setup",
+    "topic_intro_only",
+    "payoff_changes_topic",
+)
+HOOK_GATE_V4_REASON_CODES = (
+    "clear_complete_claim",
+    "topic_explicit_by_opening_end",
+    "standalone_without_prior_context",
+    "strong_relatable_tension",
+    "specific_rule_or_consequence",
+    "opening_and_payoff_coherent",
+    "payoff_resolves_opening",
+    "single_focused_idea",
+    "opening_fragment",
+    "topic_unclear",
+    "requires_prior_context",
+    "unresolved_reference",
+    "host_or_attribution_setup",
+    "topic_intro_without_claim",
+    "weak_or_generic_tension",
+    "payoff_unresolved",
+    "payoff_topic_shift",
+    "multiple_ideas",
+    "uncertain_or_hedged_delivery",
+)
+HOOK_GATE_V4_FIELDS = {
+    "opening_unit_exact_quote": {"type": "string"},
+    "topic_comprehension_exact_quote": {"type": "string"},
+    "payoff_exact_quote": {"type": "string"},
+    "opening_unit_type": {
+        "type": "string",
+        "enum": list(HOOK_GATE_V4_OPENING_UNIT_TYPES),
+    },
+    "hook_mechanism": {
+        "type": "string",
+        "enum": list(HOOK_GATE_V4_MECHANISMS),
+    },
+    "hook_semantic_topic": {"type": "string"},
+    "opening_claim_summary": {"type": "string"},
+    "whole_point_summary": {"type": "string"},
+    **{
+        field: {"type": "integer", "minimum": 0, "maximum": 100}
+        for field in HOOK_GATE_V4_SCORE_FIELDS
+    },
+    **{field: {"type": "boolean"} for field in HOOK_GATE_V4_BOOLEAN_FIELDS},
+    "hook_semantic_reason_codes": {
+        "type": "array",
+        "items": {"type": "string", "enum": list(HOOK_GATE_V4_REASON_CODES)},
+        "minItems": 1,
+        "maxItems": 8,
+    },
+}
+HOOK_GATE_V4_HIGHLIGHTS_SCHEMA = deepcopy(MICRO_HIGHLIGHTS_SCHEMA)
+_hook_gate_v4_item_schema = (
+    HOOK_GATE_V4_HIGHLIGHTS_SCHEMA["properties"]["highlights"]["items"]
+)
+_hook_gate_v4_item_schema["properties"].update(HOOK_GATE_V4_FIELDS)
+_hook_gate_v4_item_schema["required"].extend(HOOK_GATE_V4_FIELDS)
+
 FALLBACK_STATUS_CODES = {404, 429, 500, 502, 503, 504}
 GEMINI_REQUEST_TIMEOUT_MS = 90_000
 GEMINI_REST_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -244,6 +346,8 @@ def _gemini_models() -> list[str]:
 def _response_schema_for_prompt(prompt: str) -> dict:
     if '"highlights"' not in prompt:
         return CONTENT_TYPE_SCHEMA
+    if HOOK_GATE_V4_PROMPT_VERSION in prompt:
+        return HOOK_GATE_V4_HIGHLIGHTS_SCHEMA
     if HOOK_GATE_PROMPT_VERSION in prompt:
         return HOOK_GATE_V2_HIGHLIGHTS_SCHEMA
     if "semantic_tension_score" in prompt and "reaction_tail_start_time" in prompt:

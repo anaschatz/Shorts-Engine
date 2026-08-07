@@ -20,10 +20,12 @@ from .artifact_contracts import (
     candidate_hash,
     content_hash,
     file_sha256,
+    transcript_timing_hash,
 )
 from .clipper import crop_highlights
 from .composite import plan_educational_composite
 from .downloader import download_youtube
+from .dynamic_music import validate_dynamic_music_plan
 from .highlights import (
     IncompleteHighlightBatchError,
     call_muapi_llm,
@@ -36,9 +38,18 @@ from .ranker import eligible_highlights, rank_highlights, select_diverse_highlig
 from .profiles import (
     BF_EDITORIAL_INSET_V1,
     BF_EDITORIAL_INSET_V2,
+    BF_EDITORIAL_INSET_V3,
+    BF_EDITORIAL_INSET_V4,
+    BF_FEED_STOP_FORMAT_V1,
+    BF_FEED_STOP_FORMAT_V2,
+    BF_FEED_STOP_FORMAT_V3,
+    BF_FEED_STOP_FORMAT_V4,
     BF_FEED_STOP_V1,
+    BF_FEED_STOP_V2,
+    FORMAT_PROFILES,
     BF_WINNER_LAYOUT_V1,
     BF_WINNER_PACKAGING_V1,
+    VIRAL_MUSIC_CATALOG_CONTENT_HASH,
     motivational_music_profile_for_candidate,
     profile_manifest_metadata,
     render_settings_for_content,
@@ -57,6 +68,75 @@ def _timed(telemetry: Optional[PerformanceTelemetry], name: str, **attributes):
     if telemetry is None:
         return nullcontext()
     return telemetry.stage(name, **attributes)
+
+
+def _route_v4_music_candidates(
+    candidates: List[Dict],
+    recent_publications: Optional[List[Dict]],
+    *,
+    catalog: Optional[Dict] = None,
+) -> List[Dict]:
+    """Attach hash-bound semantic music decisions without hidden history."""
+
+    from .music_router import (
+        load_music_catalog,
+        route_music_for_candidate,
+        verify_music_routing_decision,
+    )
+
+    recent_track_ids: List[str] = []
+    for publication in recent_publications or []:
+        nested_decision = publication.get("musicRoutingDecision")
+        track_id = publication.get("musicTrackId") or publication.get(
+            "music_track_id"
+        )
+        if not track_id and isinstance(nested_decision, dict):
+            track_id = nested_decision.get("trackId")
+        normalized_track_id = str(track_id or "").strip().lower()
+        if normalized_track_id:
+            recent_track_ids.append(normalized_track_id)
+
+    verified_catalog = catalog or load_music_catalog()
+    if (
+        verified_catalog.get("contentHash")
+        != VIRAL_MUSIC_CATALOG_CONTENT_HASH
+    ):
+        raise ValueError(
+            "music catalog contentHash is not authorized by bf_feed_stop_format_v4"
+        )
+    reserved_track_ids: List[str] = []
+    routed_candidates: List[Dict] = []
+    for item in candidates:
+        routed = dict(item)
+        if not routed.get("rejected"):
+            decision = route_music_for_candidate(
+                routed,
+                recent_track_ids=recent_track_ids,
+                reserved_track_ids=reserved_track_ids,
+                catalog=verified_catalog,
+                verify_assets=False,
+            )
+            decision = verify_music_routing_decision(
+                decision,
+                candidate=routed,
+                catalog=verified_catalog,
+                verify_assets=False,
+            )
+            catalog_track = json.loads(json.dumps(decision["catalogTrack"]))
+            routed.update(
+                {
+                    "musicRoutingDecision": decision,
+                    "musicRoutingDecisionHash": decision["contentHash"],
+                    "musicCatalogTrack": catalog_track,
+                    "music_track_id": decision["trackId"],
+                    "music_semantic_family": decision["semanticFamily"],
+                    "music_profile": decision["treatmentProfile"],
+                    "music_start_seconds": decision["startSeconds"],
+                }
+            )
+            reserved_track_ids.append(decision["trackId"])
+        routed_candidates.append(routed)
+    return routed_candidates
 
 
 def _persist_performance_report(telemetry: PerformanceTelemetry) -> Optional[str]:
@@ -79,6 +159,158 @@ def _persist_performance_report(telemetry: PerformanceTelemetry) -> Optional[str
 
 def build_editorial_render_evidence(short: Dict) -> Dict:
     """Build the immutable renderer/QA subset available immediately after encode."""
+    raw_music_plan = short.get("dynamic_music_plan")
+    if raw_music_plan is not None and not isinstance(raw_music_plan, dict):
+        raise TypeError("dynamic_music_plan must be an object")
+    resolved_music_profile = str(
+        short.get("resolved_music_profile") or ""
+    ).strip().lower()
+    raw_music_asset_receipt = short.get("dynamic_music_asset_receipt")
+    sealed_music_asset_receipt = None
+    sealed_music_routing_decision = None
+    sealed_viral_music_asset_receipt = None
+    if short.get("render_profile") in {
+        BF_EDITORIAL_INSET_V3,
+        BF_EDITORIAL_INSET_V4,
+    }:
+        if not isinstance(raw_music_plan, dict):
+            raise ValueError(
+                "bf_editorial_inset_v3/v4 requires a dynamic music plan"
+            )
+        if short.get("dynamic_music_applied") is not True:
+            raise ValueError(
+                "bf_editorial_inset_v3/v4 requires an encoded dynamic-music mix"
+            )
+        validate_dynamic_music_plan(raw_music_plan)
+        if (
+            not resolved_music_profile
+            or raw_music_plan.get("musicProfile") != resolved_music_profile
+        ):
+            raise ValueError(
+                "dynamic music plan does not match the resolved music profile"
+            )
+        if not isinstance(raw_music_asset_receipt, dict):
+            raise ValueError(
+                "dynamic-music profiles require a resolved asset receipt"
+            )
+        receipt = json.loads(json.dumps(raw_music_asset_receipt))
+        if set(receipt) != {"assetId", "sha256", "byteLength"}:
+            raise ValueError("dynamic music asset receipt has invalid fields")
+        asset_hash = str(receipt.get("sha256") or "").strip().lower()
+        if (
+            len(asset_hash) != 64
+            or any(character not in "0123456789abcdef" for character in asset_hash)
+            or receipt.get("assetId") != f"sha256:{asset_hash}"
+            or type(receipt.get("byteLength")) is not int
+            or receipt["byteLength"] <= 0
+        ):
+            raise ValueError("dynamic music asset receipt is invalid")
+        sealed_music_asset_receipt = receipt
+    if short.get("render_profile") == BF_EDITORIAL_INSET_V4:
+        from .music_router import verify_music_routing_decision
+
+        raw_routing_decision = short.get("music_routing_decision") or short.get(
+            "musicRoutingDecision"
+        )
+        if not isinstance(raw_routing_decision, dict):
+            raise ValueError(
+                "bf_editorial_inset_v4 requires a sealed music routing decision"
+            )
+        sealed_music_routing_decision = verify_music_routing_decision(
+            raw_routing_decision,
+            candidate=short,
+            verify_assets=False,
+        )
+        if (
+            sealed_music_routing_decision.get("catalogContentHash")
+            != VIRAL_MUSIC_CATALOG_CONTENT_HASH
+        ):
+            raise ValueError(
+                "bf_editorial_inset_v4 routing decision uses an unauthorized catalog"
+            )
+        if (
+            short.get("musicCatalogTrack")
+            != sealed_music_routing_decision["catalogTrack"]
+        ):
+            raise ValueError(
+                "bf_editorial_inset_v4 catalog track does not match routing decision"
+            )
+        raw_viral_receipt = short.get("viral_music_asset_receipt")
+        if not isinstance(raw_viral_receipt, dict):
+            raise ValueError(
+                "bf_editorial_inset_v4 requires a viral music asset receipt"
+            )
+        viral_receipt = json.loads(json.dumps(raw_viral_receipt))
+        expected_viral_receipt_fields = {
+            "assetId",
+            "sha256",
+            "byteLength",
+            "trackId",
+            "relativePath",
+            "title",
+            "creator",
+            "sourcePageUrl",
+            "licenseUrl",
+            "aiGenerated",
+            "contentIdRegistered",
+            "catalogVersion",
+            "catalogContentHash",
+            "routerVersion",
+            "rotationVersion",
+            "routingDecisionHash",
+            "treatmentProfile",
+            "startSeconds",
+            "verifiedBeforeFfmpeg",
+        }
+        if set(viral_receipt) != expected_viral_receipt_fields:
+            raise ValueError("viral music asset receipt has invalid fields")
+        decision_track = sealed_music_routing_decision["catalogTrack"]
+        receipt_binding = {
+            "trackId": sealed_music_routing_decision["trackId"],
+            "sha256": decision_track["sha256"],
+            "byteLength": decision_track["byteLength"],
+            "relativePath": decision_track["relativePath"],
+            "title": decision_track["title"],
+            "creator": decision_track["creator"],
+            "sourcePageUrl": decision_track["sourcePageUrl"],
+            "licenseUrl": decision_track["licenseUrl"],
+            "aiGenerated": decision_track["aiGenerated"],
+            "contentIdRegistered": decision_track["contentIdRegistered"],
+            "catalogVersion": sealed_music_routing_decision["catalogVersion"],
+            "catalogContentHash": sealed_music_routing_decision[
+                "catalogContentHash"
+            ],
+            "routerVersion": sealed_music_routing_decision["routerVersion"],
+            "rotationVersion": sealed_music_routing_decision["rotationVersion"],
+            "routingDecisionHash": sealed_music_routing_decision["contentHash"],
+            "treatmentProfile": sealed_music_routing_decision[
+                "treatmentProfile"
+            ],
+            "startSeconds": sealed_music_routing_decision["startSeconds"],
+            "verifiedBeforeFfmpeg": True,
+        }
+        if any(viral_receipt.get(key) != value for key, value in receipt_binding.items()):
+            raise ValueError(
+                "viral music asset receipt does not bind the routing decision"
+            )
+        if viral_receipt.get("assetId") != f"sha256:{viral_receipt['sha256']}":
+            raise ValueError("viral music asset receipt assetId is invalid")
+        sealed_viral_music_asset_receipt = viral_receipt
+    sealed_music_plan = None
+    if isinstance(raw_music_plan, dict):
+        # Snapshot the renderer plan before sealing it so later mutations of
+        # renderer metadata cannot silently rewrite already-built evidence.
+        plan_body = json.loads(json.dumps(raw_music_plan))
+        plan_body.pop("contentHash", None)
+        sealed_music_plan = {
+            **plan_body,
+            "contentHash": content_hash(plan_body),
+        }
+    music_version = (
+        sealed_music_plan.get("planVersion")
+        if sealed_music_plan is not None
+        else short.get("music_mix_profile")
+    )
     payload = {
         "schemaVersion": 1,
         "artifactType": "RenderManifestEvidence",
@@ -174,6 +406,33 @@ def build_editorial_render_evidence(short: Dict) -> Dict:
             ),
         },
     }
+    if sealed_music_plan is not None:
+        # This V3-only extension leaves historical V1/V2 evidence bodies and
+        # their hashes byte-for-byte stable.
+        payload["music"] = {
+            "profile": short.get("music_profile"),
+            "resolvedProfile": resolved_music_profile,
+            "mixProfile": short.get("music_mix_profile"),
+            "version": music_version,
+            "dynamic": True,
+            "applied": short.get("dynamic_music_applied") is True,
+            "asset": sealed_music_asset_receipt,
+            "planHash": sealed_music_plan["contentHash"],
+            "plan": sealed_music_plan,
+        }
+        if sealed_music_routing_decision is not None:
+            payload["music"].update(
+                {
+                    "selectionHash": sealed_music_routing_decision[
+                        "contentHash"
+                    ],
+                    "selection": sealed_music_routing_decision,
+                    "catalogAsset": sealed_viral_music_asset_receipt,
+                    "startSeconds": sealed_music_routing_decision[
+                        "startSeconds"
+                    ],
+                }
+            )
     return {**payload, "contentHash": content_hash(payload)}
 
 
@@ -220,6 +479,42 @@ def build_ranking_manifest(
 
             record["hookGateReport"] = build_hook_gate_v3_report(
                 record,
+                render_settings=record,
+                experiment={
+                    "experimentId": record.get("experiment_id"),
+                    "cohortId": record.get("experiment_cohort"),
+                    "changedAxes": record.get("changedAxes") or [],
+                },
+            )
+        elif (
+            str(
+                record.get("hookGateVersion")
+                or record.get("hook_gate_version")
+                or ""
+            ).strip()
+            == "hook-gate-v4.0.0"
+        ):
+            from .hook_gate_v4 import (
+                build_hook_gate_v4_report,
+                transcript_word_timing_hash,
+            )
+
+            hook_words = [
+                dict(word)
+                for segment in (transcript or {}).get("segments", [])
+                if isinstance(segment, dict)
+                for word in (segment.get("words") or [])
+                if isinstance(word, dict)
+            ]
+
+            record["hookGateReport"] = build_hook_gate_v4_report(
+                record,
+                source_hash=normalized_source_hash,
+                transcript_timing_hash=(
+                    transcript_word_timing_hash(hook_words)
+                    if hook_words
+                    else None
+                ),
                 render_settings=record,
                 experiment={
                     "experimentId": record.get("experiment_id"),
@@ -433,6 +728,8 @@ def _direct_local_render_cache_identity(
     if resolved_profiles.get("render_profile") not in {
         BF_EDITORIAL_INSET_V1,
         BF_EDITORIAL_INSET_V2,
+        BF_EDITORIAL_INSET_V3,
+        BF_EDITORIAL_INSET_V4,
         BF_WINNER_LAYOUT_V1,
         BF_WINNER_PACKAGING_V1,
     }:
@@ -699,6 +996,7 @@ def _run_local(
     resolved_profiles: Dict,
     approved_candidate_hash: Optional[str] = None,
     approved_transcript: Optional[Dict] = None,
+    recent_music_publications: Optional[List[Dict]] = None,
     select_only: bool = False,
     telemetry: Optional[PerformanceTelemetry] = None,
 ) -> Dict:
@@ -707,6 +1005,12 @@ def _run_local(
     from .local.transcriber import transcribe_local
     from .local.speech_cleanliness import (
         analyze_motivational_speech_cleanliness,
+    )
+    from .local.spoken_clarity import (
+        analyze_motivational_spoken_clarity,
+    )
+    from .local.delivery_quality import (
+        analyze_motivational_delivery_quality,
     )
     from .local.visual_features import (
         analyze_candidate_visuals,
@@ -903,24 +1207,203 @@ def _run_local(
         # clips with repeated off-screen backchannels or audible fillers never
         # consume visual-analysis or render work.  Other profiles remain
         # behavior-compatible and do not invoke this provider.
-        if resolved_profiles.get("selection_profile") == BF_FEED_STOP_V1:
+        if resolved_profiles.get("selection_profile") in {
+            BF_FEED_STOP_V1,
+            BF_FEED_STOP_V2,
+        }:
             with _timed(telemetry, "source_hash"):
                 source_hash = file_sha256(source_path)
+
+            if resolved_profiles.get("selection_profile") == BF_FEED_STOP_V2:
+                from .hook_gate_v4 import (
+                    build_hook_gate_v4_report,
+                    transcript_word_timing_hash,
+                )
+
+                hook_words = [
+                    dict(word)
+                    for segment in transcript.get("segments", [])
+                    if isinstance(segment, dict)
+                    for word in (segment.get("words") or [])
+                    if isinstance(word, dict)
+                ]
+                if not hook_words:
+                    raise RuntimeError(
+                        "HookGate V4 requires an exact word-timed transcript"
+                    )
+                hook_timing_hash = transcript_word_timing_hash(hook_words)
+                source_bound_ranked = []
+                for semantic_item in semantic_ranked:
+                    bound_item = dict(semantic_item)
+                    if (
+                        str(bound_item.get("hookGateVersion") or "").strip()
+                        == "hook-gate-v4.0.0"
+                        and isinstance(bound_item.get("hookGateReport"), dict)
+                    ):
+                        bound_item["hookGateReport"] = build_hook_gate_v4_report(
+                            bound_item,
+                            source_hash=source_hash,
+                            transcript_timing_hash=hook_timing_hash,
+                            render_settings=bound_item,
+                            experiment={
+                                "experimentId": bound_item.get("experiment_id"),
+                                "cohortId": bound_item.get("experiment_cohort"),
+                                "changedAxes": bound_item.get("changedAxes") or [],
+                            },
+                        )
+                    source_bound_ranked.append(bound_item)
+                semantic_ranked = source_bound_ranked
+                candidates = [
+                    dict(item) for item in eligible_highlights(semantic_ranked)
+                ]
+                deferred_candidates = [
+                    dict(item) for item in semantic_ranked if item.get("rejected")
+                ]
+
+            format_id = resolved_profiles.get("format_profile")
+            format_contract = FORMAT_PROFILES.get(format_id, {})
+            expected_clarity_version = (
+                str(
+                    format_contract.get(
+                        "spoken_clarity_decision_version"
+                    )
+                    or ""
+                ).strip()
+                if format_id in {
+                    BF_FEED_STOP_FORMAT_V2,
+                    BF_FEED_STOP_FORMAT_V3,
+                    BF_FEED_STOP_FORMAT_V4,
+                }
+                else ""
+            )
+            expected_clarity_provider_identity = (
+                format_contract.get("spoken_clarity_provider_identity")
+                if expected_clarity_version
+                else None
+            )
+            expected_delivery_version = str(
+                format_contract.get("delivery_quality_decision_version")
+                or ""
+            ).strip()
+            expected_delivery_provider_identity = (
+                format_contract.get("delivery_quality_provider_identity")
+                if expected_delivery_version
+                else None
+            )
+            clarity_analyzed: List[Dict] = []
+            if expected_clarity_version:
+                # Selection-only replay captures diagnostic clarity evidence
+                # for every semantic candidate, including rejected near-misses.
+                # Direct production limits opening ASR to semantic survivors.
+                clarity_inputs = (
+                    [dict(item) for item in semantic_ranked]
+                    if select_only
+                    else [dict(item) for item in candidates]
+                )
+                with _timed(
+                    telemetry,
+                    "candidate_spoken_clarity",
+                    candidateCount=len(clarity_inputs),
+                    diagnosticMode=bool(select_only),
+                ):
+                    clarity_analyzed = (
+                        analyze_motivational_spoken_clarity(
+                            source_path,
+                            clarity_inputs,
+                            transcript,
+                            source_hash,
+                            cache_dir=os.path.join(
+                                LOCAL_CANDIDATE_CACHE_DIR,
+                                "spoken-clarity-evidence",
+                            ),
+                            telemetry=telemetry,
+                        )
+                        if clarity_inputs
+                        else []
+                    )
+                if len(clarity_analyzed) != len(clarity_inputs):
+                    raise RuntimeError(
+                        "spoken-clarity analysis returned an incomplete "
+                        "candidate set"
+                    )
+                if select_only:
+                    candidates = [
+                        dict(item)
+                        for item in clarity_analyzed
+                        if not item.get("rejected")
+                    ]
+                    deferred_candidates = [
+                        dict(item)
+                        for item in clarity_analyzed
+                        if item.get("rejected")
+                    ]
+                else:
+                    candidates = [dict(item) for item in clarity_analyzed]
+
+            if expected_delivery_version:
+                # DeliveryQuality measures observable pacing, pauses and
+                # source-audio dynamics only. Selection-only keeps evidence
+                # for semantic near-misses; production avoids decoding them.
+                delivery_inputs = (
+                    [dict(item) for item in clarity_analyzed]
+                    if select_only
+                    else [dict(item) for item in candidates]
+                )
+                with _timed(
+                    telemetry,
+                    "candidate_delivery_quality",
+                    candidateCount=len(delivery_inputs),
+                    diagnosticMode=bool(select_only),
+                ):
+                    delivery_analyzed = (
+                        analyze_motivational_delivery_quality(
+                            source_path,
+                            delivery_inputs,
+                            transcript,
+                            source_hash,
+                            telemetry=telemetry,
+                        )
+                        if delivery_inputs
+                        else []
+                    )
+                if len(delivery_analyzed) != len(delivery_inputs):
+                    raise RuntimeError(
+                        "delivery-quality analysis returned an incomplete "
+                        "candidate set"
+                    )
+                if select_only:
+                    candidates = [
+                        dict(item)
+                        for item in delivery_analyzed
+                        if not item.get("rejected")
+                    ]
+                    deferred_candidates = [
+                        dict(item)
+                        for item in delivery_analyzed
+                        if item.get("rejected")
+                    ]
+                else:
+                    candidates = [dict(item) for item in delivery_analyzed]
+
             with _timed(
                 telemetry,
                 "candidate_audio_cleanliness",
                 candidateCount=len(candidates),
             ):
-                candidates = analyze_motivational_speech_cleanliness(
-                    source_path,
-                    candidates,
-                    transcript,
-                    source_hash,
-                    cache_dir=os.path.join(
-                        LOCAL_CANDIDATE_CACHE_DIR,
-                        "source-audio-evidence",
-                    ),
-                    telemetry=telemetry,
+                candidates = (
+                    analyze_motivational_speech_cleanliness(
+                        source_path,
+                        candidates,
+                        transcript,
+                        source_hash,
+                        cache_dir=os.path.join(
+                            LOCAL_CANDIDATE_CACHE_DIR,
+                            "source-audio-evidence",
+                        ),
+                        telemetry=telemetry,
+                    )
+                    if candidates
+                    else []
                 )
             audio_ranked = rank_highlights(
                 candidates + deferred_candidates,
@@ -928,6 +1411,22 @@ def _run_local(
                 content_type=content_type,
                 selection_profile=resolved_profiles.get("selection_profile"),
                 require_speech_cleanliness=True,
+                expected_spoken_clarity_version=(
+                    expected_clarity_version or None
+                ),
+                expected_spoken_clarity_provider_identity=(
+                    expected_clarity_provider_identity
+                ),
+                spoken_clarity_semantic_authority=(
+                    format_contract.get("spoken_clarity_semantic_authority")
+                ),
+                expected_delivery_quality_version=(
+                    expected_delivery_version or None
+                ),
+                expected_delivery_quality_provider_identity=(
+                    expected_delivery_provider_identity
+                ),
+                expected_source_hash=source_hash,
             )
             candidates = [
                 dict(item) for item in eligible_highlights(audio_ranked)
@@ -982,12 +1481,54 @@ def _run_local(
             selection_profile=resolved_profiles.get("selection_profile"),
             require_speech_cleanliness=(
                 resolved_profiles.get("selection_profile")
-                == BF_FEED_STOP_V1
+                in {BF_FEED_STOP_V1, BF_FEED_STOP_V2}
             ),
+            expected_spoken_clarity_version=(
+                FORMAT_PROFILES.get(
+                    resolved_profiles.get("format_profile"),
+                    {},
+                ).get("spoken_clarity_decision_version")
+            ),
+            expected_spoken_clarity_provider_identity=(
+                FORMAT_PROFILES.get(
+                    resolved_profiles.get("format_profile"),
+                    {},
+                ).get("spoken_clarity_provider_identity")
+            ),
+            spoken_clarity_semantic_authority=(
+                FORMAT_PROFILES.get(
+                    resolved_profiles.get("format_profile"),
+                    {},
+                ).get("spoken_clarity_semantic_authority")
+            ),
+            expected_delivery_quality_version=(
+                FORMAT_PROFILES.get(
+                    resolved_profiles.get("format_profile"),
+                    {},
+                ).get("delivery_quality_decision_version")
+            ),
+            expected_delivery_quality_provider_identity=(
+                FORMAT_PROFILES.get(
+                    resolved_profiles.get("format_profile"),
+                    {},
+                ).get("delivery_quality_provider_identity")
+            ),
+            expected_source_hash=source_hash,
         )
     if source_hash is None:
         with _timed(telemetry, "source_hash"):
             source_hash = file_sha256(source_path)
+    if resolved_profiles.get("format_profile") == BF_FEED_STOP_FORMAT_V4:
+        with _timed(
+            telemetry,
+            "candidate_music_routing",
+            candidateCount=len(eligible_highlights(all_highlights)),
+            recentPublicationCount=len(recent_music_publications or []),
+        ):
+            all_highlights = _route_v4_music_candidates(
+                all_highlights,
+                recent_music_publications,
+            )
     all_highlights = [
         {
             **{key: value for key, value in item.items() if key != "candidate_hash"},
@@ -1106,6 +1647,8 @@ def _run_local(
                 if resolved_profiles.get("render_profile") in {
                     BF_EDITORIAL_INSET_V1,
                     BF_EDITORIAL_INSET_V2,
+                    BF_EDITORIAL_INSET_V3,
+                    BF_EDITORIAL_INSET_V4,
                 }:
                     editorial_qa_failures = []
                     measured_shorts = []
@@ -1318,6 +1861,7 @@ def generate_shorts(
     format_profile: Optional[str] = None,
     approved_candidate_hash: Optional[str] = None,
     approved_transcript: Optional[Dict] = None,
+    recent_music_publications: Optional[List[Dict]] = None,
     select_only: bool = False,
 ) -> Dict:
     """Run the full pipeline and return a structured result.
@@ -1339,6 +1883,9 @@ def generate_shorts(
             by the Node control plane; local production profile only.
         approved_transcript: hash-verified TranscriptManifest body supplied by
             the Node control plane together with approved_candidate_hash.
+        recent_music_publications: explicit public and scheduled publication
+            ledger used only by the V4 music anti-repeat policy. No hidden
+            mutable history is read by the renderer.
         select_only: rank and persist candidates without invoking a renderer.
 
     Returns:
@@ -1351,6 +1898,23 @@ def generate_shorts(
         }
     """
     mode = (mode or "api").lower()
+    if recent_music_publications is None:
+        recent_music_publications = []
+    elif not isinstance(recent_music_publications, list) or any(
+        not isinstance(item, dict) for item in recent_music_publications
+    ):
+        raise TypeError("recent_music_publications must be a list of objects")
+    normalized_format_profile = str(format_profile or "").strip().lower()
+    normalized_selection_profile = str(selection_profile or "").strip().lower()
+    if normalized_format_profile == BF_FEED_STOP_FORMAT_V1:
+        raise ValueError(
+            "bf_feed_stop_format_v1 is legacy replay-only and cannot be used "
+            "for new generation; use bf_feed_stop_format_v4"
+        )
+    if not normalized_format_profile and normalized_selection_profile == BF_FEED_STOP_V1:
+        format_profile = BF_FEED_STOP_FORMAT_V2
+    if not normalized_format_profile and normalized_selection_profile == BF_FEED_STOP_V2:
+        format_profile = BF_FEED_STOP_FORMAT_V4
     resolved_profiles = resolve_profile_bundle(
         content_profile=content_profile,
         selection_profile=selection_profile,
@@ -1379,6 +1943,8 @@ def generate_shorts(
         in {
             BF_EDITORIAL_INSET_V1,
             BF_EDITORIAL_INSET_V2,
+            BF_EDITORIAL_INSET_V3,
+            BF_EDITORIAL_INSET_V4,
             BF_WINNER_LAYOUT_V1,
             BF_WINNER_PACKAGING_V1,
         }
@@ -1423,6 +1989,7 @@ def generate_shorts(
                     resolved_profiles,
                     approved_candidate_hash=approved_hash or None,
                     approved_transcript=approved_transcript,
+                    recent_music_publications=recent_music_publications,
                     select_only=select_only,
                     telemetry=telemetry,
                 )

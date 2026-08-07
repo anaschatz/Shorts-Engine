@@ -8,6 +8,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
+from shorts_generator.dynamic_music import build_dynamic_music_plan
 from shorts_generator.local.clipper import (
     BF_EDITORIAL_INSET_CORNER_RADIUS_RATIO,
     BF_EDITORIAL_INSET_LAYOUT,
@@ -39,6 +40,7 @@ from shorts_generator.local.clipper import (
     _lossless_cut_cache_key,
     _local_temporary_directory,
     _motivational_audio_filter,
+    _music_asset_receipt,
     _output_dimensions,
     _prewarm_bf_editorial_realesrgan_cache,
     _prune_lossless_cut_cache,
@@ -51,6 +53,7 @@ from shorts_generator.local.clipper import (
     _realesrgan_unique_frame_index,
     _realesrgan_working_geometry,
     _resolve_bf_brand_tail_seconds,
+    _resolve_motivational_music_profile,
     _raw_video_command,
     _should_bypass_editorial_realesrgan,
     _trim_opening_dead_air,
@@ -62,6 +65,30 @@ from shorts_generator.local.clipper import (
 
 
 class BfEditorialInsetProfileTests(unittest.TestCase):
+    def test_v3_music_override_drives_plan_and_asset_receipt(self):
+        with patch(
+            "shorts_generator.local.clipper.LOCAL_MOTIVATIONAL_MUSIC_PROFILE",
+            "driving",
+        ):
+            resolved = _resolve_motivational_music_profile("reflective")
+        plan = build_dynamic_music_plan(
+            {"music_profile": "reflective"},
+            [],
+            duration=10.0,
+            speech_end_seconds=9.0,
+            natural_tail_end_seconds=9.5,
+            music_profile=resolved,
+        )
+        self.assertEqual(resolved, "driving")
+        self.assertEqual(plan["musicProfile"], "driving")
+
+        with tempfile.TemporaryDirectory() as directory:
+            asset = Path(directory) / "licensed.mp3"
+            asset.write_bytes(b"licensed-dynamic-music-fixture")
+            receipt = _music_asset_receipt(str(asset))
+        self.assertEqual(receipt["byteLength"], 30)
+        self.assertEqual(receipt["assetId"], f"sha256:{receipt['sha256']}")
+
     def test_source_cut_detector_preserves_real_camera_changes(self):
         stderr = "\n".join(
             [
@@ -974,6 +1001,53 @@ class BfEditorialInsetProfileTests(unittest.TestCase):
         self.assertIn("afade=t=out:st=9.988:d=0.012", natural_pause_filter)
         self.assertNotIn("afade=t=out:st=9.920:d=0.080", natural_pause_filter)
         self.assertIn("afade=t=out:st=10.200:d=0.300", natural_pause_filter)
+
+        dynamic_plan = build_dynamic_music_plan(
+            {
+                "hook_sentence_end_seconds": 1.5,
+                "payoff_start_seconds": 6.0,
+                "payoff_end_seconds": 7.0,
+                "music_profile": "driving",
+            },
+            [],
+            duration=10.8,
+            speech_end_seconds=10.0,
+            natural_tail_end_seconds=10.5,
+        )
+        dynamic_filter = _motivational_audio_filter(
+            10.8,
+            music_profile="driving",
+            brand_tail_start_seconds=10.5,
+            speech_end_seconds=10.0,
+            brand_tail_music_release_seconds=0.18,
+            dynamic_music_plan=dynamic_plan,
+        )
+        self.assertIn("volume='if(lt(t,", dynamic_filter)
+        self.assertIn("sidechaincompress", dynamic_filter)
+        self.assertIn("loudnorm=I=", dynamic_filter)
+        self.assertIn("atrim=end=10.000", dynamic_filter)
+        self.assertIn("afade=t=out:st=10.500:d=0.180", dynamic_filter)
+
+        with self.assertRaisesRegex(RuntimeError, "requires an enabled"):
+            _raw_video_command(
+                "cut.mkv",
+                "short.mp4",
+                (1080, 1920),
+                30.0,
+                duration=10.8,
+                dynamic_music_plan=dynamic_plan,
+            )
+        dynamic_command = _raw_video_command(
+            "cut.mkv",
+            "short.mp4",
+            (1080, 1920),
+            30.0,
+            duration=10.8,
+            music_path="licensed.mp3",
+            dynamic_music_plan=dynamic_plan,
+        )
+        self.assertIn("[aout]", dynamic_command)
+        self.assertIn("licensed.mp3", dynamic_command)
 
         zero_transition = _raw_video_command(
             "cut.mkv",

@@ -5,6 +5,9 @@ from shorts_generator.local.llm import (
     CONTENT_TYPE_SCHEMA,
     HIGHLIGHTS_SCHEMA,
     HOOK_GATE_V2_HIGHLIGHTS_SCHEMA,
+    HOOK_GATE_V4_HIGHLIGHTS_SCHEMA,
+    HOOK_GATE_V4_PROMPT_VERSION,
+    HOOK_GATE_V4_REASON_CODES,
     MICRO_HIGHLIGHTS_SCHEMA,
     _generate_gemini_with_fallback,
     _generate_gemini_rest_with_fallback,
@@ -129,6 +132,65 @@ class GeminiRoutingTests(unittest.TestCase):
         self.assertEqual(
             hook_gate_item["properties"]["hook_gate_reasons"]["maxItems"],
             8,
+        )
+
+        v4_prompt = (
+            f'{HOOK_GATE_V4_PROMPT_VERSION} Respond with {{"highlights":[]}} '
+            "including semantic_tension_score and reaction_tail_start_time"
+        )
+        self.assertIs(
+            _response_schema_for_prompt(v4_prompt),
+            HOOK_GATE_V4_HIGHLIGHTS_SCHEMA,
+        )
+        v4_item = HOOK_GATE_V4_HIGHLIGHTS_SCHEMA[
+            "properties"
+        ]["highlights"]["items"]
+        for field in (
+            "opening_unit_exact_quote",
+            "topic_comprehension_exact_quote",
+            "payoff_exact_quote",
+            "opening_unit_type",
+            "hook_mechanism",
+            "hook_semantic_topic",
+            "opening_claim_summary",
+            "whole_point_summary",
+            "opening_sentence_clarity_score",
+            "topic_explicitness_score",
+            "standalone_comprehension_score",
+            "tension_or_relevance_score",
+            "opening_point_coherence_score",
+            "payoff_resolution_score",
+            "single_idea_focus_score",
+            "lexical_delivery_strength_score",
+            "hook_semantic_confidence_score",
+            "opening_unit_is_complete_claim",
+            "requires_external_context",
+            "unresolved_deictic_reference",
+            "host_or_attribution_setup",
+            "topic_intro_only",
+            "payoff_changes_topic",
+            "hook_semantic_reason_codes",
+        ):
+            self.assertIn(field, v4_item["required"])
+        for field in (
+            "opening_sentence_clarity_score",
+            "topic_explicitness_score",
+            "standalone_comprehension_score",
+            "tension_or_relevance_score",
+            "opening_point_coherence_score",
+            "payoff_resolution_score",
+            "single_idea_focus_score",
+            "lexical_delivery_strength_score",
+            "hook_semantic_confidence_score",
+        ):
+            self.assertEqual(v4_item["properties"][field]["minimum"], 0)
+            self.assertEqual(v4_item["properties"][field]["maximum"], 100)
+        reasons = v4_item["properties"]["hook_semantic_reason_codes"]
+        self.assertEqual(reasons["minItems"], 1)
+        self.assertEqual(reasons["maxItems"], 8)
+        self.assertEqual(
+            reasons["items"]["enum"],
+            list(HOOK_GATE_V4_REASON_CODES),
         )
 
     def test_falls_back_on_temporary_model_error(self):

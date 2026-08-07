@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "DynamicMusicAutoresearchContract",
+  "contractVersion": "bf-music-autoresearch-v1.0.0",
+  "experimentId": "bf-dynamic-music-v1-calibration",
+  "evaluationLane": "dynamic_music_plan",
+  "planVersion": "bf_dynamic_music_v1.0.0",
+  "changedAxes": [
+    "musicTreatment"
+  ],
+  "objective": "Offline plan safety and semantic-arc calibration only",
+  "planGuardrails": {
+    "maximumRampRatePerSecond": 1.25,
+    "maximumSpeechMeanGain": 0.82,
+    "maximumEntryGain": 0.55,
+    "maximumTailGain": 0.75,
+    "minimumDynamicRange": 0.24,
+    "maximumDynamicRange": 0.58,
+    "minimumBuildLift": 0.12,
+    "minimumClarityPocketDepth": 0.18,
+    "minimumPayoffEmphasisLift": 0.25,
+    "minimumReleaseDepth": 0.15,
+    "minimumContextBuildCoverage": 0.65
+  },
+  "licensedMusicAssets": [
+    {
+      "path": "assets/music/mixkit-driving-ambition-32.mp3",
+      "role": "licensed_music_driving",
+      "sha256": "e3c88488e65b8c87a6f06120983ce2cb12ea3aeba99f8cadb7ee5d6d284ef2c6",
+      "byteLength": 3270947
+    },
+    {
+      "path": "assets/music/mixkit-forest-mist-whispers-148.mp3",
+      "role": "licensed_music_reflective",
+      "sha256": "30232da0b9521ed35e009162bfe7c63d06c9c8e4ca81ea5137ab63a9dc66cd98",
+      "byteLength": 4830022
+    },
+    {
+      "path": "assets/music/mixkit-i-believe-in-us-1030.mp3",
+      "role": "licensed_music_warm",
+      "sha256": "67ff5856b33595d1d527ea91f353d1ea4e1dc4242a5e89e9aaa05c380ad3d171",
+      "byteLength": 5374954
+    }
+  ],
+  "styleReferenceMedia": [
+    {
+      "path": "research/style-references/instagram/DXSDpA-DCV5/audio.m4a",
+      "role": "user_supplied_style_reference_audio",
+      "sha256": "458b19f826757e7efe34aa77f07c69d6827d3dc251962c379d9cba99ff73858c",
+      "byteLength": 365283
+    },
+    {
+      "path": "research/style-references/instagram/DaR_SpyyB4a/audio.m4a",
+      "role": "user_supplied_style_reference_audio",
+      "sha256": "b4ca3f8e56656ca60aad3a59a3b239dede6ec507b559eb5b053db79818aafca6",
+      "byteLength": 120665
+    },
+    {
+      "path": "research/style-references/instagram/DaR_SpyyB4a/reference.mp4",
+      "role": "user_supplied_style_reference_video",
+      "sha256": "59697764cfb0d17f34613916fc30157f3edcd8ac67c36c4f235d0f745d8b4dae",
+      "byteLength": 315915
+    },
+    {
+      "path": "research/style-references/instagram/DZQR9dsNnvn/audio.m4a",
+      "role": "user_supplied_style_reference_audio",
+      "sha256": "333be46fce20c443a0877da61749f2f9d2ab16b35041f647005509af7279fe9e",
+      "byteLength": 168834
+    },
+    {
+      "path": "research/style-references/instagram/DZQR9dsNnvn/reference.mp4",
+      "role": "user_supplied_style_reference_video",
+      "sha256": "a90357e5915c6c02892710c38a1055ef5cf3e8c48ca626d8e2413613fee79260",
+      "byteLength": 290394
+    },
+    {
+      "path": "research/style-references/instagram/DYkFjyFty5s/reference.mp4",
+      "role": "user_supplied_style_reference_video",
+      "sha256": "79ef1a50a691f0d7807bacf3cf0c51f5f344afd33d288cc2f42c00117ab9ab65",
+      "byteLength": 862750
+    }
+  ],
+  "referenceLabelManifests": [],
+  "minimumSealedReferenceLabels": 3,
+  "realOutcomePolicy": {
+    "controlTreatmentId": "licensed_low_bed_v1",
+    "candidateTreatmentId": "bf_dynamic_music_v1.0.0",
+    "equalAgeGateHours": 168,
+    "minimumPerTreatment": 3,
+    "acceptedSources": [
+      "studio_csv",
+      "youtube_analytics_api"
+    ]
+  },
+  "liveOutcomeClaimsAllowedWithoutAnalytics": false,
+  "humanDecisionRequired": true,
+  "autoPromotionAllowed": false,
+  "contentHash": "1999076051f092a278bb19c22b6bd1caa4917e1b25a6a6c92a4033e2110c9b67"
+}

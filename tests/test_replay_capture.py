@@ -1,5 +1,6 @@
 import io
 import json
+import math
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -23,28 +24,42 @@ from shorts_generator.artifact_contracts import (
     candidate_hash,
     content_hash,
     file_sha256,
+    transcript_timing_hash,
     verify_seal,
 )
 from shorts_generator.growth_replay import load_replay_dataset, verify_replay_pack
 from shorts_generator.pipeline import build_ranking_manifest
-from shorts_generator.profiles import BF_VIRAL_MICRO_V1, resolve_profile_bundle
+from shorts_generator.profiles import (
+    BF_FEED_STOP_FORMAT_V3,
+    BF_VIRAL_MICRO_V1,
+    resolve_profile_bundle,
+)
 from shorts_generator.replay_capture import (
     ENGINE_SELECTION_SEMANTICS,
     HUMAN_LABEL_SEMANTICS,
+    HUMAN_PREVIEW_REJECTION_ARTIFACT_TYPE,
+    HUMAN_PREVIEW_REJECTION_LEGACY_VERSION,
+    HUMAN_PREVIEW_REJECTION_SEMANTICS,
+    HUMAN_PREVIEW_REJECTION_VERSION,
     HUMAN_REJECTION_ARTIFACT_TYPE,
     HUMAN_REJECTION_SEMANTICS,
+    archive_rejected_preview,
     archive_rejected_candidate,
     archive_approved_candidate,
     build_replay_capture_dataset,
     build_replay_capture_label,
+    build_replay_human_preview_rejection,
     build_replay_human_rejection,
     verify_replay_capture_dataset,
     verify_replay_capture_label,
+    verify_replay_human_preview_rejection,
     verify_replay_human_rejection,
 )
 from shorts_generator.speech_cleanliness import (
     evaluate_speech_cleanliness_evidence,
 )
+from shorts_generator import preview_provenance as preview_provenance_module
+from tests.test_artifact_contracts import feed_stop_v3_candidate
 
 
 def exact_transcript():
@@ -104,6 +119,84 @@ def exact_transcript():
     }
 
 
+def passing_preview_provenance_report(
+    source_hash,
+    preview_hash,
+    start_ms,
+    end_ms,
+):
+    duration_ms = end_ms - start_ms
+    sample_count = int(round(duration_ms * 8.0))
+    frame_count = max(1, int(math.floor(duration_ms / 1000.0 + 0.5)))
+    payload = {
+        "schemaVersion": 1,
+        "artifactType": "PreviewSourceProvenanceReport",
+        "analyzer": {
+            "id": "budget_friendly_preview_source_provenance",
+            "version": "bf-preview-source-provenance-v1.0.0",
+        },
+        "runtime": {
+            "ffmpegVersion": "fixture",
+            "ffprobeVersion": "fixture",
+            "numpyVersion": "fixture",
+            "pythonVersion": "fixture",
+        },
+        "config": json.loads(
+            json.dumps(preview_provenance_module._CONFIG)
+        ),
+        "bindings": {
+            "sourceSha256": source_hash,
+            "previewSha256": preview_hash,
+            "sourceIntervalMs": {
+                "startMs": start_ms,
+                "endMs": end_ms,
+            },
+        },
+        "analysisStatus": "complete",
+        "failureCode": None,
+        "decodedEvidence": {
+            "sourceAudioF32leSha256": "a" * 64,
+            "previewAudioF32leSha256": "b" * 64,
+            "sourceVideoRgb24Sha256": "c" * 64,
+            "previewVideoRgb24Sha256": "d" * 64,
+        },
+        "metrics": {
+            "expectedDurationMs": duration_ms,
+            "previewDurationMs": duration_ms,
+            "durationDeltaMs": 0,
+            "audio": {
+                "alignedSampleCount": sample_count,
+                "alignmentOffsetMs": 0.0,
+                "alignmentOffsetSamples": 0,
+                "correlation": 1.0,
+                "coverageRatio": 1.0,
+                "expectedSampleCount": sample_count,
+                "previewSampleCount": sample_count,
+                "sourceSampleCount": sample_count,
+            },
+            "video": {
+                "alignedFrameCount": frame_count,
+                "alignmentOffsetFrames": 0,
+                "coverageRatio": 1.0,
+                "expectedFrameCount": frame_count,
+                "maximumFrameMeanAbsoluteError": 0.0,
+                "meanCorrelation": 1.0,
+                "meanFrameMeanAbsoluteError": 0.0,
+                "minimumFrameCorrelation": 1.0,
+                "previewFrameCount": frame_count,
+                "sourceFrameCount": frame_count,
+            },
+        },
+        "gates": [
+            {"code": code, "passed": True}
+            for code in preview_provenance_module._GATE_CODES
+        ],
+        "passed": True,
+        "decision": "pass",
+    }
+    return {**payload, "contentHash": content_hash(payload)}
+
+
 def candidate_body(rank, start, end, title, *, selected=False):
     return {
         "start_time": start,
@@ -146,6 +239,119 @@ def readiness_contract(
 
 
 class ReplayCaptureTests(unittest.TestCase):
+    def test_v3_capture_rebuild_restores_top_level_hook_gate_evidence(self):
+        candidate, transcript = feed_stop_v3_candidate(
+            source_hash=self.source_hash
+        )
+        ranking = build_ranking_manifest(
+            "https://example.test/v3-source",
+            str(self.source),
+            "motivational_podcast",
+            [candidate],
+            [candidate],
+            profiles=resolve_profile_bundle(
+                format_profile=BF_FEED_STOP_FORMAT_V3
+            ),
+            source_hash=self.source_hash,
+            transcript=transcript,
+        )
+        dataset = build_replay_capture_dataset(ranking)
+        decision = build_candidate_decision(
+            ranking["candidates"][0],
+            self.source_hash,
+            reviewer="operator_1",
+            decided_at="2026-08-07T12:00:00Z",
+            ranking_manifest_hash=ranking["contentHash"],
+            replay_transcript=ranking["replayTranscriptManifest"]["transcript"],
+            transcript_timing_hash=ranking["replayTranscriptManifest"][
+                "transcriptTimingHash"
+            ],
+        )
+
+        label = build_replay_capture_label(
+            dataset,
+            decision,
+            approved_rank=1,
+        )
+
+        self.assertEqual(
+            decision["hookGateReport"],
+            ranking["candidates"][0]["hookGateReport"],
+        )
+        self.assertNotIn("hookGateReport", decision["candidate"])
+        self.assertIs(verify_replay_capture_label(label, dataset), label)
+
+        reportless_ranking = json.loads(json.dumps(ranking))
+        reportless_ranking["candidates"][0].pop("hookGateReport")
+        reportless_ranking["contentHash"] = content_hash(reportless_ranking)
+        reportless_dataset = build_replay_capture_dataset(reportless_ranking)
+        report_bound_decision = build_candidate_decision(
+            ranking["candidates"][0],
+            self.source_hash,
+            reviewer="operator_1",
+            decided_at="2026-08-07T12:00:00Z",
+            ranking_manifest_hash=reportless_ranking["contentHash"],
+            replay_transcript=ranking["replayTranscriptManifest"]["transcript"],
+            transcript_timing_hash=ranking["replayTranscriptManifest"][
+                "transcriptTimingHash"
+            ],
+        )
+        with self.assertRaisesRegex(
+            ArtifactBindingError,
+            "differs from the ranking candidate",
+        ):
+            build_replay_capture_label(
+                reportless_dataset,
+                report_bound_decision,
+                approved_rank=1,
+            )
+
+    def test_v3_capture_rejects_self_consistent_evidence_for_stale_transcript(self):
+        _, ranking_transcript = feed_stop_v3_candidate(
+            source_hash=self.source_hash
+        )
+        stale_transcript = json.loads(json.dumps(ranking_transcript))
+        stale_transcript["duration"] += 1.0
+        stale_transcript["segments"][0]["end"] += 1.0
+        stale_timing_hash = transcript_timing_hash(stale_transcript)
+        stale_candidate, _ = feed_stop_v3_candidate(
+            source_hash=self.source_hash,
+            evidence_transcript_timing_hash=stale_timing_hash,
+        )
+        ranking = build_ranking_manifest(
+            "https://example.test/v3-source",
+            str(self.source),
+            "motivational_podcast",
+            [stale_candidate],
+            [stale_candidate],
+            profiles=resolve_profile_bundle(
+                format_profile=BF_FEED_STOP_FORMAT_V3
+            ),
+            source_hash=self.source_hash,
+            transcript=ranking_transcript,
+        )
+        # Recreate the adversarial pre-fix shape: all four reports consistently
+        # reference the stale transcript while the sealed ranking references
+        # another exact transcript. Candidate identity intentionally excludes
+        # only the volatile HookGate report.
+        ranking["candidates"][0]["hookGateReport"] = stale_candidate[
+            "hookGateReport"
+        ]
+        ranking["contentHash"] = content_hash(ranking)
+        dataset = build_replay_capture_dataset(ranking)
+        decision = build_candidate_decision(
+            stale_candidate,
+            self.source_hash,
+            reviewer="operator_1",
+            decided_at="2026-08-07T12:00:00Z",
+            ranking_manifest_hash=ranking["contentHash"],
+            replay_transcript=stale_transcript,
+            transcript_timing_hash=stale_timing_hash,
+        )
+
+        with self.assertRaisesRegex(ArtifactBindingError, "another transcript"):
+            build_replay_capture_label(dataset, decision, approved_rank=1)
+
     def test_default_evidence_root_is_durable_app_data_not_cache_or_output(self):
         with patch.object(config_module.sys, "platform", "darwin"), patch.object(
             config_module.Path,
@@ -481,6 +687,383 @@ class ReplayCaptureTests(unittest.TestCase):
                 rejected_rank=1,
                 evidence_dir=evidence,
             )
+
+    def test_human_rejection_normalizes_clarity_and_delivery_reason_codes(self):
+        dataset = build_replay_capture_dataset(self.ranking)
+        rejection = build_replay_human_rejection(
+            dataset,
+            self.candidates[0]["candidate_hash"],
+            reviewer="operator_1",
+            decided_at="2026-08-06T12:30:30Z",
+            reason_codes=[
+                " Unclear-Hook ",
+                "unclear point",
+                "UNINTELLIGIBLE SPEECH",
+                "Hesitant-Or-Stuttered Delivery",
+                "unclear_hook",
+            ],
+        )
+
+        self.assertEqual(
+            rejection["reasonCodes"],
+            [
+                "hesitant_or_stuttered_delivery",
+                "unclear_hook",
+                "unclear_point",
+                "unintelligible_speech",
+            ],
+        )
+        verify_replay_human_rejection(rejection, dataset)
+
+        noncanonical = {
+            **rejection,
+            "reasonCodes": ["Unclear-Hook"],
+        }
+        noncanonical["contentHash"] = content_hash(noncanonical)
+        with self.assertRaisesRegex(ArtifactBindingError, "not canonical"):
+            verify_replay_human_rejection(noncanonical, dataset)
+
+    def test_preview_rejection_is_sealed_nonproduction_and_has_no_candidate_identity(self):
+        dataset = build_replay_capture_dataset(self.ranking)
+        media = self.root / "review-preview.mp4"
+        media.write_bytes(b"exact-reviewed-preview-bytes")
+        provenance = passing_preview_provenance_report(
+            self.source_hash,
+            file_sha256(str(media)),
+            0,
+            23020,
+        )
+        rejection = build_replay_human_preview_rejection(
+            dataset,
+            interval_start_ms=0,
+            interval_end_ms=23020,
+            review_media_hash=file_sha256(str(media)),
+            review_media_byte_length=media.stat().st_size,
+            review_media_duration_ms=23020,
+            review_media_container=" .MP4 ",
+            reviewer=" operator_1 ",
+            decided_at=" 2026-08-07T09:00:00Z ",
+            reason_codes=[
+                "Unclear-Hook",
+                "unclear point",
+                "hesitant or stuttered delivery",
+            ],
+            preview_source_provenance_report=provenance,
+            notes=" The reviewed source preview is not a ranked candidate. ",
+        )
+
+        self.assertEqual(
+            rejection["artifactType"],
+            HUMAN_PREVIEW_REJECTION_ARTIFACT_TYPE,
+        )
+        self.assertEqual(
+            rejection["labelSemantics"],
+            HUMAN_PREVIEW_REJECTION_SEMANTICS,
+        )
+        self.assertFalse(rejection["productionEligible"])
+        self.assertEqual(
+            rejection["rejectionVersion"],
+            HUMAN_PREVIEW_REJECTION_VERSION,
+        )
+        self.assertEqual(
+            rejection["previewSourceProvenanceReportHash"],
+            provenance["contentHash"],
+        )
+        self.assertEqual(
+            rejection["sourceIntervalMs"],
+            {"startMs": 0, "endMs": 23020},
+        )
+        self.assertEqual(
+            rejection["reviewMedia"],
+            {
+                "sha256": file_sha256(str(media)),
+                "byteLength": media.stat().st_size,
+                "durationMs": 23020,
+                "container": "mp4",
+            },
+        )
+        self.assertEqual(
+            rejection["reasonCodes"],
+            [
+                "hesitant_or_stuttered_delivery",
+                "unclear_hook",
+                "unclear_point",
+            ],
+        )
+        for field in (
+            "candidateHash",
+            "candidateRecordHash",
+            "candidateIndex",
+            "rejectedRank",
+        ):
+            self.assertNotIn(field, rejection)
+        verify_replay_human_preview_rejection(
+            rejection,
+            dataset,
+            review_media_path=media,
+        )
+        frame_tolerant = build_replay_human_preview_rejection(
+            dataset,
+            interval_start_ms=0,
+            interval_end_ms=23020,
+            review_media_hash=file_sha256(str(media)),
+            review_media_byte_length=media.stat().st_size,
+            review_media_duration_ms=22920,
+            review_media_container="mp4",
+            reviewer="operator_1",
+            decided_at="2026-08-07T09:00:01Z",
+            reason_codes=["unclear_hook"],
+            preview_source_provenance_report=provenance,
+        )
+        verify_replay_human_preview_rejection(frame_tolerant, dataset)
+
+        legacy = json.loads(json.dumps(rejection))
+        legacy["rejectionVersion"] = HUMAN_PREVIEW_REJECTION_LEGACY_VERSION
+        legacy.pop("previewSourceProvenanceReport")
+        legacy.pop("previewSourceProvenanceReportHash")
+        legacy["contentHash"] = content_hash(legacy)
+        verify_replay_human_preview_rejection(
+            legacy,
+            dataset,
+            review_media_path=media,
+        )
+
+        legacy_root = self.root / "legacy-preview-capture"
+        (legacy_root / "datasets").mkdir(parents=True)
+        (legacy_root / "negative-preview-labels" / self.ranking["contentHash"]).mkdir(
+            parents=True
+        )
+        (legacy_root / "review-media").mkdir(parents=True)
+        (legacy_root / "datasets" / f"{self.ranking['contentHash']}.json").write_text(
+            json.dumps(dataset), encoding="utf-8"
+        )
+        (
+            legacy_root
+            / "negative-preview-labels"
+            / self.ranking["contentHash"]
+            / f"{legacy['contentHash']}.json"
+        ).write_text(json.dumps(legacy), encoding="utf-8")
+        (
+            legacy_root
+            / "review-media"
+            / f"{file_sha256(str(media))}.mp4"
+        ).write_bytes(media.read_bytes())
+        legacy_readiness = assess_capture_data_readiness(
+            legacy_root,
+            readiness_contract(),
+        )
+        self.assertIsNone(legacy_readiness["integrityError"])
+        self.assertEqual(
+            legacy_readiness["explicitHumanPreviewRejectionCount"],
+            1,
+        )
+        with self.assertRaisesRegex(ArtifactBindingError, "CandidateDecision"):
+            build_replay_capture_label(dataset, rejection, approved_rank=1)
+
+    def test_preview_rejection_fails_closed_on_binding_media_and_shape_tamper(self):
+        dataset = build_replay_capture_dataset(self.ranking)
+        media = self.root / "review-preview.mp4"
+        media.write_bytes(b"exact-reviewed-preview-bytes")
+        provenance = passing_preview_provenance_report(
+            self.source_hash,
+            file_sha256(str(media)),
+            100,
+            23020,
+        )
+        rejection = build_replay_human_preview_rejection(
+            dataset,
+            interval_start_ms=100,
+            interval_end_ms=23020,
+            review_media_hash=file_sha256(str(media)),
+            review_media_byte_length=media.stat().st_size,
+            review_media_duration_ms=22920,
+            review_media_container="mp4",
+            reviewer="operator_1",
+            decided_at="2026-08-07T09:01:00Z",
+            reason_codes=["unintelligible_speech"],
+            preview_source_provenance_report=provenance,
+        )
+
+        mutations = {}
+        stale_source = json.loads(json.dumps(rejection))
+        stale_source["sourceHash"] = "d" * 64
+        mutations["sourceHash binding is stale"] = stale_source
+
+        fractional_interval = json.loads(json.dumps(rejection))
+        fractional_interval["sourceIntervalMs"]["endMs"] = 23020.5
+        mutations["must be a positive integer"] = fractional_interval
+
+        stale_media_length = json.loads(json.dumps(rejection))
+        stale_media_length["reviewMedia"]["byteLength"] += 1
+        mutations["bytes do not match"] = stale_media_length
+
+        false_media_duration = json.loads(json.dumps(rejection))
+        false_media_duration["reviewMedia"]["durationMs"] = 22819
+        mutations["does not match sourceIntervalMs"] = false_media_duration
+
+        noncanonical_container = json.loads(json.dumps(rejection))
+        noncanonical_container["reviewMedia"]["container"] = "MP4"
+        mutations["reviewMedia is not canonical"] = noncanonical_container
+
+        candidate_identity = json.loads(json.dumps(rejection))
+        candidate_identity["candidateHash"] = self.candidates[0]["candidate_hash"]
+        mutations["must not contain candidate identity"] = candidate_identity
+
+        missing_provenance = json.loads(json.dumps(rejection))
+        missing_provenance.pop("previewSourceProvenanceReport")
+        missing_provenance.pop("previewSourceProvenanceReportHash")
+        mutations["lacks preview source provenance"] = missing_provenance
+
+        tampered_provenance = json.loads(json.dumps(rejection))
+        tampered_provenance["previewSourceProvenanceReport"]["passed"] = False
+        mutations["contentHash"] = tampered_provenance
+
+        for message, tampered in mutations.items():
+            with self.subTest(message=message):
+                tampered["contentHash"] = content_hash(tampered)
+                kwargs = (
+                    {"review_media_path": media}
+                    if message == "bytes do not match"
+                    else {}
+                )
+                with self.assertRaisesRegex(ArtifactBindingError, message):
+                    verify_replay_human_preview_rejection(
+                        tampered,
+                        dataset,
+                        **kwargs,
+                    )
+
+        media.write_bytes(b"different-reviewed-preview-bytes")
+        with self.assertRaisesRegex(ArtifactBindingError, "bytes do not match"):
+            verify_replay_human_preview_rejection(
+                rejection,
+                dataset,
+                review_media_path=media,
+            )
+
+        invalid_builds = (
+            {"interval_start_ms": 0.0},
+            {"interval_end_ms": 25000},
+            {"review_media_byte_length": 0},
+            {"review_media_duration_ms": True},
+            {"review_media_duration_ms": 22919},
+        )
+        base = {
+            "interval_start_ms": 0,
+            "interval_end_ms": 23020,
+            "review_media_hash": file_sha256(str(media)),
+            "review_media_byte_length": media.stat().st_size,
+            "review_media_duration_ms": 23020,
+            "review_media_container": "mp4",
+            "reviewer": "operator_1",
+            "decided_at": "2026-08-07T09:02:00Z",
+            "reason_codes": ["unclear_hook"],
+            "preview_source_provenance_report": passing_preview_provenance_report(
+                self.source_hash,
+                file_sha256(str(media)),
+                0,
+                23020,
+            ),
+        }
+        for override in invalid_builds:
+            with self.subTest(override=override), self.assertRaises(
+                ArtifactBindingError
+            ):
+                build_replay_human_preview_rejection(
+                    dataset,
+                    **{**base, **override},
+                )
+
+    def test_preview_rejection_archive_copies_exact_media_and_retry_is_idempotent(self):
+        evidence = self.root / "preview-negative-evidence"
+        media = self.root / "review-preview.mp4"
+        media.write_bytes(b"exact-reviewed-preview-bytes")
+        provenance = passing_preview_provenance_report(
+            self.source_hash,
+            file_sha256(str(media)),
+            0,
+            23020,
+        )
+        arguments = {
+            "interval_start_ms": 0,
+            "interval_end_ms": 23020,
+            "review_media_path": media,
+            "review_media_duration_ms": 23020,
+            "review_media_container": "mp4",
+            "reviewer": "operator_1",
+            "decided_at": "2026-08-07T09:03:00Z",
+            "reason_codes": ["unclear_hook", "unclear_point"],
+            "preview_source_provenance_report": provenance,
+            "evidence_dir": evidence,
+        }
+        first = archive_rejected_preview(self.ranking, **arguments)
+        second = archive_rejected_preview(self.ranking, **arguments)
+
+        self.assertTrue(first["datasetCreated"])
+        self.assertTrue(first["reviewMediaCreated"])
+        self.assertTrue(first["rejectionCreated"])
+        self.assertFalse(second["datasetCreated"])
+        self.assertFalse(second["reviewMediaCreated"])
+        self.assertFalse(second["rejectionCreated"])
+        self.assertEqual(first["rejectionHash"], second["rejectionHash"])
+        self.assertEqual(first["reviewMediaHash"], file_sha256(str(media)))
+        self.assertEqual(
+            first["previewSourceProvenanceHash"],
+            provenance["contentHash"],
+        )
+
+        archived_media = Path(first["reviewMediaPath"])
+        archived_rejection_path = Path(first["rejectionPath"])
+        dataset_path = Path(first["datasetPath"])
+        self.assertEqual(archived_media.read_bytes(), media.read_bytes())
+        self.assertEqual(archived_media.parent.name, "review-media")
+        self.assertEqual(
+            archived_rejection_path.parent.parent.name,
+            "negative-preview-labels",
+        )
+        archived_rejection = json.loads(
+            archived_rejection_path.read_text(encoding="utf-8")
+        )
+        archived_dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+        verify_replay_human_preview_rejection(
+            archived_rejection,
+            archived_dataset,
+            review_media_path=archived_media,
+        )
+        readiness = assess_capture_data_readiness(
+            evidence,
+            readiness_contract(),
+        )
+        self.assertIsNone(readiness["integrityError"])
+        self.assertEqual(
+            readiness["explicitHumanPreviewRejectionCount"],
+            1,
+        )
+
+        unrelated = passing_preview_provenance_report(
+            self.source_hash,
+            "e" * 64,
+            0,
+            23020,
+        )
+        rejected_root = self.root / "unrelated-preview-evidence"
+        with self.assertRaisesRegex(ArtifactBindingError, "bindings do not match"):
+            archive_rejected_preview(
+                self.ranking,
+                **{
+                    **arguments,
+                    "evidence_dir": rejected_root,
+                    "preview_source_provenance_report": unrelated,
+                },
+            )
+        self.assertFalse(rejected_root.exists())
+
+        archived_media.write_bytes(b"corrupted-archived-preview")
+        with self.assertRaisesRegex(
+            ArtifactBindingError,
+            "immutable review media collision",
+        ):
+            archive_rejected_preview(self.ranking, **arguments)
 
     def test_human_rejection_binds_optional_speech_cleanliness_evidence(self):
         base_dataset = build_replay_capture_dataset(self.ranking)

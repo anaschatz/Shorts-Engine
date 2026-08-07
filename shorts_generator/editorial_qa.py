@@ -14,14 +14,26 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
+from .dynamic_music import (
+    DYNAMIC_MUSIC_PLAN_VERSION,
+    validate_dynamic_music_plan,
+)
+from .music_router import verify_music_routing_decision
 from .profiles import (
     BF_EDITORIAL_INSET_V2,
+    BF_EDITORIAL_INSET_V3,
+    BF_EDITORIAL_INSET_V4,
+    BF_FEED_STOP_FORMAT_V1,
+    BF_FEED_STOP_FORMAT_V2,
+    BF_FEED_STOP_FORMAT_V3,
+    BF_FEED_STOP_FORMAT_V4,
     BF_GROWTH_V2,
     BF_NATURAL_TAIL_V6,
     BF_REFERENCE_TAIL_V2,
     BF_SMOOTH_TAIL_V3,
     BF_SMOOTH_TAIL_V4,
     BF_SMOOTH_TAIL_V5,
+    VIRAL_MUSIC_CATALOG_CONTENT_HASH,
 )
 
 
@@ -463,16 +475,194 @@ def evaluate_editorial_render(
         brand_tail = manifest.get("brandTail") or {}
         tail_profile = str(brand_tail.get("profile") or "").strip().lower()
         growth_v2_tail = tail_profile == BF_NATURAL_TAIL_V6
-        expected_render_profile = (
+        declared_render_profile = str(
+            manifest.get("renderProfile") or ""
+        ).strip().lower()
+        declared_format_profile = str(
+            manifest.get("formatProfile") or ""
+        ).strip().lower()
+        render_profile_by_format = {
+            BF_VIRAL_MICRO_FORMAT: BF_EDITORIAL_INSET_PROFILE,
+            BF_GROWTH_V2: BF_EDITORIAL_INSET_V2,
+            BF_FEED_STOP_FORMAT_V1: BF_EDITORIAL_INSET_V2,
+            BF_FEED_STOP_FORMAT_V2: BF_EDITORIAL_INSET_V2,
+            BF_FEED_STOP_FORMAT_V3: BF_EDITORIAL_INSET_V3,
+            BF_FEED_STOP_FORMAT_V4: BF_EDITORIAL_INSET_V4,
+        }
+        expected_render_profile = render_profile_by_format.get(
+            declared_format_profile,
             BF_EDITORIAL_INSET_V2
             if growth_v2_tail
-            else BF_EDITORIAL_INSET_PROFILE
+            else BF_EDITORIAL_INSET_PROFILE,
         )
-        expected_format_profile = (
-            BF_GROWTH_V2
-            if growth_v2_tail
-            else BF_VIRAL_MICRO_FORMAT
+        valid_profile_binding = (
+            render_profile_by_format.get(declared_format_profile)
+            == declared_render_profile
         )
+        expected_format_profile = "|".join(
+            sorted(
+                format_profile
+                for format_profile, render_profile in (
+                    render_profile_by_format.items()
+                )
+                if render_profile == declared_render_profile
+            )
+        )
+        music = (
+            manifest.get("music")
+            if isinstance(manifest.get("music"), dict)
+            else {}
+        )
+        sealed_music_plan = (
+            music.get("plan")
+            if isinstance(music.get("plan"), dict)
+            else None
+        )
+        dynamic_music_required = (
+            declared_render_profile == BF_EDITORIAL_INSET_V3
+            or declared_format_profile == BF_FEED_STOP_FORMAT_V3
+            or declared_render_profile == BF_EDITORIAL_INSET_V4
+            or declared_format_profile == BF_FEED_STOP_FORMAT_V4
+        )
+        viral_music_routing_required = (
+            declared_render_profile == BF_EDITORIAL_INSET_V4
+            or declared_format_profile == BF_FEED_STOP_FORMAT_V4
+        )
+        music_plan_hash_valid = not dynamic_music_required
+        music_plan_valid = not dynamic_music_required
+        if sealed_music_plan is not None:
+            plan_body = dict(sealed_music_plan)
+            declared_plan_hash = str(
+                plan_body.pop("contentHash", "") or ""
+            ).strip().lower()
+            calculated_plan_hash = _canonical_hash(plan_body)
+            music_plan_hash_valid = (
+                declared_plan_hash == calculated_plan_hash
+                and str(music.get("planHash") or "").strip().lower()
+                == calculated_plan_hash
+            )
+            try:
+                validate_dynamic_music_plan(plan_body)
+            except (TypeError, ValueError):
+                music_plan_valid = False
+            else:
+                music_plan_valid = True
+        music_version_valid = (
+            not dynamic_music_required
+            or (
+                music.get("version") == DYNAMIC_MUSIC_PLAN_VERSION
+                and music.get("mixProfile") == DYNAMIC_MUSIC_PLAN_VERSION
+                and sealed_music_plan is not None
+                and sealed_music_plan.get("planVersion")
+                == DYNAMIC_MUSIC_PLAN_VERSION
+            )
+        )
+        resolved_music_profile = str(
+            music.get("resolvedProfile") or ""
+        ).strip().lower()
+        music_profile_valid = (
+            not dynamic_music_required
+            or (
+                bool(resolved_music_profile)
+                and music.get("profile") == resolved_music_profile
+                and sealed_music_plan is not None
+                and sealed_music_plan.get("musicProfile")
+                == resolved_music_profile
+            )
+        )
+        music_asset = (
+            music.get("asset")
+            if isinstance(music.get("asset"), dict)
+            else {}
+        )
+        music_asset_hash = str(
+            music_asset.get("sha256") or ""
+        ).strip().lower()
+        music_asset_valid = (
+            not dynamic_music_required
+            or (
+                set(music_asset) == {"assetId", "sha256", "byteLength"}
+                and len(music_asset_hash) == 64
+                and all(
+                    character in "0123456789abcdef"
+                    for character in music_asset_hash
+                )
+                and music_asset.get("assetId")
+                == f"sha256:{music_asset_hash}"
+                and type(music_asset.get("byteLength")) is int
+                and music_asset["byteLength"] > 0
+            )
+        )
+        music_selection = (
+            music.get("selection")
+            if isinstance(music.get("selection"), dict)
+            else None
+        )
+        verified_music_selection = None
+        music_selection_valid = not viral_music_routing_required
+        if music_selection is not None:
+            try:
+                verified_music_selection = verify_music_routing_decision(
+                    music_selection,
+                    verify_assets=False,
+                )
+            except (TypeError, ValueError):
+                music_selection_valid = False
+            else:
+                music_selection_valid = (
+                    music.get("selectionHash")
+                    == verified_music_selection.get("contentHash")
+                    and verified_music_selection.get("catalogContentHash")
+                    == VIRAL_MUSIC_CATALOG_CONTENT_HASH
+                    and music.get("startSeconds")
+                    == verified_music_selection.get("startSeconds")
+                    and resolved_music_profile
+                    == verified_music_selection.get("treatmentProfile")
+                    and sealed_music_plan is not None
+                    and sealed_music_plan.get("musicProfile")
+                    == verified_music_selection.get("treatmentProfile")
+                )
+        viral_asset = (
+            music.get("catalogAsset")
+            if isinstance(music.get("catalogAsset"), dict)
+            else None
+        )
+        viral_asset_valid = not viral_music_routing_required
+        if viral_asset is not None and verified_music_selection is not None:
+            track = verified_music_selection["catalogTrack"]
+            expected_receipt = {
+                "trackId": verified_music_selection["trackId"],
+                "sha256": track["sha256"],
+                "byteLength": track["byteLength"],
+                "relativePath": track["relativePath"],
+                "title": track["title"],
+                "creator": track["creator"],
+                "sourcePageUrl": track["sourcePageUrl"],
+                "licenseUrl": track["licenseUrl"],
+                "aiGenerated": track["aiGenerated"],
+                "contentIdRegistered": track["contentIdRegistered"],
+                "catalogVersion": verified_music_selection["catalogVersion"],
+                "catalogContentHash": verified_music_selection[
+                    "catalogContentHash"
+                ],
+                "routerVersion": verified_music_selection["routerVersion"],
+                "rotationVersion": verified_music_selection["rotationVersion"],
+                "routingDecisionHash": verified_music_selection["contentHash"],
+                "treatmentProfile": verified_music_selection[
+                    "treatmentProfile"
+                ],
+                "startSeconds": verified_music_selection["startSeconds"],
+                "verifiedBeforeFfmpeg": True,
+            }
+            viral_asset_valid = (
+                set(viral_asset) == {"assetId", *expected_receipt}
+                and all(
+                    viral_asset.get(key) == value
+                    for key, value in expected_receipt.items()
+                )
+                and viral_asset.get("assetId")
+                == f"sha256:{track['sha256']}"
+            )
         source_content_end = _safe_float(
             brand_tail.get("sourceContentEndTime"),
             -1.0,
@@ -694,9 +884,18 @@ def evaluate_editorial_render(
         )
         gates.extend(
             [
-                _gate("PROFILE_BINDING", manifest.get("renderProfile") == expected_render_profile, manifest.get("renderProfile"), expected_render_profile, "binding"),
-                _gate("FORMAT_BINDING", manifest.get("formatProfile") == expected_format_profile, manifest.get("formatProfile"), expected_format_profile, "binding"),
+                _gate("PROFILE_BINDING", declared_render_profile == expected_render_profile, manifest.get("renderProfile"), expected_render_profile, "binding"),
+                _gate("FORMAT_BINDING", valid_profile_binding, manifest.get("formatProfile"), expected_format_profile, "binding"),
                 _gate("MANIFEST_HASH", declared_hash in (None, manifest_hash), declared_hash, manifest_hash, "binding"),
+                _gate("MUSIC_PLAN_REQUIRED", not dynamic_music_required or (music.get("dynamic") is True and sealed_music_plan is not None), {"required": dynamic_music_required, "dynamic": music.get("dynamic"), "present": sealed_music_plan is not None}, "V3 requires one sealed deterministic dynamic-music plan", "binding"),
+                _gate("MUSIC_MIX_APPLIED", not dynamic_music_required or music.get("applied") is True, {"required": dynamic_music_required, "applied": music.get("applied")}, "V3 render must execute the licensed dynamic-music filter graph", "binding"),
+                _gate("MUSIC_PROFILE_BINDING", music_profile_valid, {"profile": music.get("profile"), "resolvedProfile": music.get("resolvedProfile"), "planProfile": sealed_music_plan.get("musicProfile") if sealed_music_plan is not None else None}, "V3 plan and renderer must use the same resolved profile", "binding"),
+                _gate("MUSIC_ASSET_BINDING", music_asset_valid, {"assetId": music_asset.get("assetId"), "byteLength": music_asset.get("byteLength")}, "V3 must bind the exact non-empty licensed music bytes", "binding"),
+                _gate("MUSIC_ROUTING_DECISION", music_selection_valid, {"required": viral_music_routing_required, "selectionHash": music.get("selectionHash"), "trackId": music_selection.get("trackId") if music_selection else None}, "V4 requires a sealed semantic routing decision bound to the exact catalog", "binding"),
+                _gate("MUSIC_CATALOG_ASSET", viral_asset_valid, {"required": viral_music_routing_required, "trackId": viral_asset.get("trackId") if viral_asset else None, "assetId": viral_asset.get("assetId") if viral_asset else None}, "V4 requires the exact pre-FFmpeg catalog asset and license receipt", "binding"),
+                _gate("MUSIC_VERSION_BINDING", music_version_valid, {"version": music.get("version"), "mixProfile": music.get("mixProfile"), "planVersion": sealed_music_plan.get("planVersion") if sealed_music_plan is not None else None}, DYNAMIC_MUSIC_PLAN_VERSION if dynamic_music_required else "not required", "binding"),
+                _gate("MUSIC_PLAN_HASH", music_plan_hash_valid, {"planHash": music.get("planHash"), "sealedHash": sealed_music_plan.get("contentHash") if sealed_music_plan is not None else None}, "planHash and sealed contentHash match the exact plan body", "binding"),
+                _gate("MUSIC_PLAN_VALID", music_plan_valid, sealed_music_plan is not None, "bounded, contiguous, version-valid dynamic envelope", "binding"),
                 _gate("HOOK_LATENCY", _safe_float(timeline.get("firstVisibleTextSeconds"), 99.0) <= 0.25, timeline.get("firstVisibleTextSeconds"), "<=0.25s", "creative"),
                 _gate("HERO_SCALE", _safe_float(typography.get("maxHeroScale"), 0.0) >= 1.8, typography.get("maxHeroScale"), ">=1.8x", "creative"),
                 _gate("ARTIFICIAL_CUTS", _safe_int(cuts.get("artificialCutCount"), -1) == 0, cuts.get("artificialCutCount"), "0", "timeline"),

@@ -35,6 +35,15 @@ from .hook_gate_v3 import (
     evaluate_hook_gate_v3_cached,
     transcript_word_timing_hash,
 )
+from .hook_gate_v4 import (
+    BF_FEED_STOP_V2_POLICY_VERSION,
+    HOOK_GATE_V4_DECISION_VERSION,
+    HOOK_GATE_V4_PROMPT,
+    HOOK_GATE_V4_PROMPT_VERSION,
+    HOOK_GATE_V4_RESPONSE_CONTRACT,
+    HOOK_GATE_V4_VERSION,
+    evaluate_hook_gate_v4_cached,
+)
 from .motivational_closure import (
     SEMANTIC_CLOSURE_DECISION_VERSION,
     evaluate_motivational_closure_v1,
@@ -58,11 +67,20 @@ BF_FEED_STOP_V1 = getattr(
     "BF_FEED_STOP_V1",
     BF_FEED_STOP_POLICY_VERSION,
 )
+# Prompt/schema integration lands before the immutable profile registry is
+# activated.  The literal fallback keeps this module able to build and cache
+# V4 discovery requests without mutating the historical V1 profile.
+BF_FEED_STOP_V2 = getattr(
+    _profiles,
+    "BF_FEED_STOP_V2",
+    BF_FEED_STOP_V2_POLICY_VERSION,
+)
 MICRO_SELECTION_PROFILES = frozenset(
     {
         MOTIVATIONAL_TENSION_MICRO_V1,
         MOTIVATIONAL_TENSION_MICRO_V2,
         BF_FEED_STOP_V1,
+        BF_FEED_STOP_V2,
     }
 )
 
@@ -161,6 +179,96 @@ MOTIVATIONAL_TENSION_MICRO_V2_GUIDANCE = (
     )
 )
 
+HOOK_GATE_V4_REASON_CODES = (
+    "clear_complete_claim",
+    "topic_explicit_by_opening_end",
+    "standalone_without_prior_context",
+    "strong_relatable_tension",
+    "specific_rule_or_consequence",
+    "opening_and_payoff_coherent",
+    "payoff_resolves_opening",
+    "single_focused_idea",
+    "opening_fragment",
+    "topic_unclear",
+    "requires_prior_context",
+    "unresolved_reference",
+    "host_or_attribution_setup",
+    "topic_intro_without_claim",
+    "weak_or_generic_tension",
+    "payoff_unresolved",
+    "payoff_topic_shift",
+    "multiple_ideas",
+    "uncertain_or_hedged_delivery",
+)
+HOOK_GATE_V4_SCORE_FIELDS = (
+    "opening_sentence_clarity_score",
+    "topic_explicitness_score",
+    "standalone_comprehension_score",
+    "tension_or_relevance_score",
+    "opening_point_coherence_score",
+    "payoff_resolution_score",
+    "single_idea_focus_score",
+    "lexical_delivery_strength_score",
+    "hook_semantic_confidence_score",
+)
+HOOK_GATE_V4_BOOLEAN_FIELDS = (
+    "opening_unit_is_complete_claim",
+    "requires_external_context",
+    "unresolved_deictic_reference",
+    "host_or_attribution_setup",
+    "topic_intro_only",
+    "payoff_changes_topic",
+)
+
+HOOK_GATE_V4_SELECTION_GUIDANCE = f"""HookGate V4 semantic evidence / {HOOK_GATE_V4_PROMPT_VERSION}:
+- Judge the complete first independent spoken proposition before judging the
+  rest of the clip. Do not decide hook quality from a fixed number of opening
+  words and do not reward isolated keywords that fail to form a clear claim.
+- opening_unit_exact_quote must be the exact candidate prefix that contains
+  the complete first independent claim, rule, contradiction, tension, or a
+  question together with its immediate answer. It may be longer than twelve
+  words. A fragment, topic introduction, or unresolved setup is not a claim.
+- topic_comprehension_exact_quote must be an exact prefix from speech start,
+  equal to or longer than opening_unit_exact_quote, ending at the first point
+  where a new viewer can accurately name what the speaker is discussing.
+- Then read the complete selected interval. Explain the one whole point, test
+  whether the opening and payoff discuss the same subject, and reject clips
+  that change topic, require prior dialogue, or leave the opening unresolved.
+- payoff_exact_quote must be exact source-contiguous speech and must end on the
+  final spoken token of the selected interval. It can be a resolving clause,
+  final sentence, or the whole point; it is not required to be a prefix.
+- Score the meaning expressed by the whole opening proposition: explicit
+  subject/topic, understandable claim, relatable tension or consequence,
+  standalone context, coherence with the whole point, and resolved payoff.
+- lexical_delivery_strength_score measures only transcript-supported verbal
+  directness: decisive wording, a clear subject and predicate, and absence of
+  hedges, filler, false starts, or uncertainty. Do not infer volume, emotion,
+  confidence, cadence, or vocal energy that is not observable in the text.
+- Do not paraphrase any exact-quote field. Summaries describe meaning, but all
+  exact quotes must preserve consecutive source words in their original order.
+- hook_semantic_reason_codes are evidence labels, not the final decision.
+  Return 1-8 values only from the declared reason-code vocabulary. Python
+  recomputes exact spans, measurements, thresholds, and eligibility.
+- Prefer a clear, forceful full sentence whose topic and stakes are understood
+  immediately over an opening that merely contains a charged first word."""
+
+HOOK_GATE_V4_STRUCTURED_RESPONSE_CONTRACT = (
+    HOOK_GATE_V4_RESPONSE_CONTRACT
+    + "\n\n"
+    + """HOOK GATE V4 REQUIRED FIELD SPECIFICATION:
+For every highlight, include all of these additional fields:
+- opening_unit_exact_quote: exact candidate-prefix words forming the complete first independent proposition.
+- topic_comprehension_exact_quote: exact candidate prefix through the first point of topic comprehension.
+- payoff_exact_quote: exact source-contiguous resolving speech ending on the selected interval's final spoken token.
+- opening_unit_type: claim|rule|contradiction|tension|question_with_immediate_answer|story_setup|topic_intro|fragment.
+- hook_mechanism: contradiction|concrete_rule|identity_threat|interpersonal_conflict|surprising_consequence|emotional_comparison|visual_metaphor|common_belief_challenge|none.
+- hook_semantic_topic, opening_claim_summary, whole_point_summary: concise semantic descriptions; these may summarize but must not replace exact quotes.
+- opening_sentence_clarity_score, topic_explicitness_score, standalone_comprehension_score, tension_or_relevance_score, opening_point_coherence_score, payoff_resolution_score, single_idea_focus_score, lexical_delivery_strength_score, hook_semantic_confidence_score: conservative integers from 0 to 100.
+- opening_unit_is_complete_claim, requires_external_context, unresolved_deictic_reference, host_or_attribution_setup, topic_intro_only, payoff_changes_topic: booleans.
+- hook_semantic_reason_codes: 1-8 values chosen only from clear_complete_claim, topic_explicit_by_opening_end, standalone_without_prior_context, strong_relatable_tension, specific_rule_or_consequence, opening_and_payoff_coherent, payoff_resolves_opening, single_focused_idea, opening_fragment, topic_unclear, requires_prior_context, unresolved_reference, host_or_attribution_setup, topic_intro_without_claim, weak_or_generic_tension, payoff_unresolved, payoff_topic_shift, multiple_ideas, uncertain_or_hedged_delivery.
+Do not omit fields and do not label the candidate pass/reject; the deterministic Python gate owns that decision."""
+)
+
 SELECTION_PROFILE_GUIDANCE = {
     MOTIVATIONAL_TENSION_MICRO_V1: MOTIVATIONAL_TENSION_MICRO_GUIDANCE,
     MOTIVATIONAL_TENSION_MICRO_V2: (
@@ -172,6 +280,33 @@ SELECTION_PROFILE_GUIDANCE = {
     ),
     BF_FEED_STOP_V1: (
         HOOK_GATE_V3_PROMPT
+        + "\n\n"
+        + MOTIVATIONAL_TENSION_MICRO_V2_GUIDANCE.replace(
+            "Prefer a complete 15-21 second point",
+            "Prefer a complete 12-17 second point",
+        ).replace(
+            "8-30 seconds",
+            "8-24 seconds",
+        )
+        + "\n"
+        + MOTIVATIONAL_TENSION_MICRO_V2_CLOSURE_GUIDANCE.replace(
+            "15-21 seconds",
+            "12-17 seconds",
+        ).replace(
+            "22-25 seconds",
+            "17-21 seconds",
+        ).replace(
+            "25-30 second",
+            "21-24 second",
+        ).replace(
+            "30 seconds",
+            "24 seconds",
+        )
+    ),
+    BF_FEED_STOP_V2: (
+        HOOK_GATE_V4_PROMPT
+        + "\n\n"
+        + HOOK_GATE_V4_SELECTION_GUIDANCE
         + "\n\n"
         + MOTIVATIONAL_TENSION_MICRO_V2_GUIDANCE.replace(
             "Prefer a complete 15-21 second point",
@@ -243,6 +378,22 @@ REFINEMENT_INSTRUCTIONS_V3 = (
         "more than 30 seconds apart",
         "more than 24 seconds apart",
     )
+)
+
+REFINEMENT_INSTRUCTIONS_V4 = (
+    REFINEMENT_INSTRUCTIONS_V3
+    + "\nV4 semantic-hook refinement:\n"
+    + "- Re-evaluate the complete first independent proposition, not a fixed "
+    + "number of opening words or isolated charged terms.\n"
+    + "- A repair is valid only when the full opening proposition clearly "
+    + "states its topic and claim and the complete selected interval resolves "
+    + "that same idea.\n"
+    + "- Return every HookGate V4 semantic field from the authoritative "
+    + "response extension. All three exact-quote fields must remain literal "
+    + "source-contiguous speech with the required prefix/end bindings.\n"
+    + "- Do not infer vocal confidence or energy from transcript text; score "
+    + "only lexical delivery strength and leave acoustic delivery to measured "
+    + "audio evidence."
 )
 
 
@@ -458,6 +609,63 @@ def _sanitize_highlights(
         normalized_profile = _normalized_selection_profile(selection_profile)
         if normalized_profile == MOTIVATIONAL_TENSION_MICRO_V2:
             hook_gate_fields = normalize_hook_gate_v2_fields(item)
+        elif normalized_profile == BF_FEED_STOP_V2:
+            raw_reason_codes = item.get("hook_semantic_reason_codes")
+            reason_codes = []
+            if isinstance(raw_reason_codes, list):
+                for reason in raw_reason_codes:
+                    normalized_reason = str(reason or "").strip().lower()
+                    if (
+                        normalized_reason in HOOK_GATE_V4_REASON_CODES
+                        and normalized_reason not in reason_codes
+                    ):
+                        reason_codes.append(normalized_reason)
+                    if len(reason_codes) >= 8:
+                        break
+            hook_gate_fields = {
+                "opening_unit_exact_quote": str(
+                    item.get("opening_unit_exact_quote") or ""
+                ).strip(),
+                "topic_comprehension_exact_quote": str(
+                    item.get("topic_comprehension_exact_quote") or ""
+                ).strip(),
+                "payoff_exact_quote": str(
+                    item.get("payoff_exact_quote") or ""
+                ).strip(),
+                "opening_unit_type": str(
+                    item.get("opening_unit_type") or ""
+                ).strip().lower(),
+                "hook_mechanism": str(
+                    item.get("hook_mechanism") or ""
+                ).strip().lower(),
+                "hook_semantic_topic": str(
+                    item.get("hook_semantic_topic") or ""
+                ).strip(),
+                "opening_claim_summary": str(
+                    item.get("opening_claim_summary") or ""
+                ).strip(),
+                "whole_point_summary": str(
+                    item.get("whole_point_summary") or ""
+                ).strip(),
+                **{
+                    field: (
+                        max(0, min(100, _coerce_int(item.get(field))))
+                        if item.get(field) is not None
+                        else None
+                    )
+                    for field in HOOK_GATE_V4_SCORE_FIELDS
+                },
+                **{
+                    field: (
+                        _coerce_bool(item.get(field))
+                        if item.get(field) is not None
+                        else None
+                    )
+                    for field in HOOK_GATE_V4_BOOLEAN_FIELDS
+                },
+                "hook_semantic_reason_codes": reason_codes,
+                "hook_gate_prompt_version": HOOK_GATE_V4_PROMPT_VERSION,
+            }
         elif normalized_profile == BF_FEED_STOP_V1:
             hook_gate_fields = {
                 "opening_exact_quote": str(
@@ -733,6 +941,8 @@ def _build_highlight_prompt(
         system = f"{system}\n\n{HOOK_GATE_V2_RESPONSE_CONTRACT}"
     elif normalized_selection_profile == BF_FEED_STOP_V1:
         system = f"{system}\n\n{HOOK_GATE_V3_RESPONSE_CONTRACT}"
+    elif normalized_selection_profile == BF_FEED_STOP_V2:
+        system = f"{system}\n\n{HOOK_GATE_V4_STRUCTURED_RESPONSE_CONTRACT}"
     return f"{system}\n\nTranscript:\n{transcript_text}", normalized_selection_profile
 
 
@@ -910,6 +1120,7 @@ def _discovery_prompt_contract(
     if normalized_selection_profile in {
         MOTIVATIONAL_TENSION_MICRO_V2,
         BF_FEED_STOP_V1,
+        BF_FEED_STOP_V2,
     }:
         selection_guidance = {
             normalized_selection_profile: SELECTION_PROFILE_GUIDANCE[
@@ -929,7 +1140,9 @@ def _discovery_prompt_contract(
         "contentGuidance": CONTENT_TYPE_GUIDANCE,
         "selectionGuidance": selection_guidance,
         "refinementInstructions": (
-            REFINEMENT_INSTRUCTIONS_V3
+            REFINEMENT_INSTRUCTIONS_V4
+            if normalized_selection_profile == BF_FEED_STOP_V2
+            else REFINEMENT_INSTRUCTIONS_V3
             if normalized_selection_profile == BF_FEED_STOP_V1
             else REFINEMENT_INSTRUCTIONS_V2
             if normalized_selection_profile == MOTIVATIONAL_TENSION_MICRO_V2
@@ -948,6 +1161,11 @@ def _discovery_prompt_contract(
         )
     elif normalized_selection_profile == BF_FEED_STOP_V1:
         payload["hookGatePromptVersion"] = HOOK_GATE_V3_PROMPT_VERSION
+        payload["semanticClosureDecisionVersion"] = (
+            SEMANTIC_CLOSURE_DECISION_VERSION
+        )
+    elif normalized_selection_profile == BF_FEED_STOP_V2:
+        payload["hookGatePromptVersion"] = HOOK_GATE_V4_PROMPT_VERSION
         payload["semanticClosureDecisionVersion"] = (
             SEMANTIC_CLOSURE_DECISION_VERSION
         )
@@ -980,14 +1198,21 @@ def _discovery_cache_path(
     if _normalized_selection_profile(selection_profile) in {
         MOTIVATIONAL_TENSION_MICRO_V2,
         BF_FEED_STOP_V1,
+        BF_FEED_STOP_V2,
     }:
         normalized_profile = _normalized_selection_profile(selection_profile)
-        selection_contract = _profiles.SELECTION_PROFILES[
-            normalized_profile
-        ]
+        selection_contract = _profiles.SELECTION_PROFILES.get(
+            normalized_profile,
+            {},
+        )
         contract["decisionPolicyVersion"] = {
             "hookGate": str(
-                selection_contract.get("hook_gate_decision_version") or ""
+                selection_contract.get("hook_gate_decision_version")
+                or (
+                    HOOK_GATE_V4_DECISION_VERSION
+                    if normalized_profile == BF_FEED_STOP_V2
+                    else ""
+                )
             ),
             "semanticClosure": str(
                 selection_contract.get("semantic_closure_decision_version")
@@ -1154,7 +1379,8 @@ def _global_candidate_is_qualified(
         return True
     hard_max = (
         24.0
-        if _normalized_selection_profile(selection_profile) == BF_FEED_STOP_V1
+        if _normalized_selection_profile(selection_profile)
+        in {BF_FEED_STOP_V1, BF_FEED_STOP_V2}
         else 22.0
     )
     if not 8.0 <= speech_duration <= hard_max:
@@ -1441,7 +1667,9 @@ def _build_refinement_prompt(
     system_prompt = empty_prompt.rsplit("\n\nTranscript:\n", 1)[0]
     normalized_profile = _normalized_selection_profile(selection_profile)
     refinement_instructions = (
-        REFINEMENT_INSTRUCTIONS_V3
+        REFINEMENT_INSTRUCTIONS_V4
+        if normalized_profile == BF_FEED_STOP_V2
+        else REFINEMENT_INSTRUCTIONS_V3
         if normalized_profile == BF_FEED_STOP_V1
         else REFINEMENT_INSTRUCTIONS_V2
         if normalized_profile == MOTIVATIONAL_TENSION_MICRO_V2
@@ -1632,6 +1860,21 @@ def call_highlight_api(
     if normalized_selection_profile == BF_FEED_STOP_V1:
         hook_gate_retry_fields = (
             " opening_exact_quote, hook_payoff_phrase, hook_family,"
+        )
+    elif normalized_selection_profile == BF_FEED_STOP_V2:
+        hook_gate_retry_fields = (
+            " opening_unit_exact_quote, topic_comprehension_exact_quote,"
+            " payoff_exact_quote, opening_unit_type, hook_mechanism,"
+            " hook_semantic_topic, opening_claim_summary, whole_point_summary,"
+            " opening_sentence_clarity_score, topic_explicitness_score,"
+            " standalone_comprehension_score, tension_or_relevance_score,"
+            " opening_point_coherence_score, payoff_resolution_score,"
+            " single_idea_focus_score, lexical_delivery_strength_score,"
+            " hook_semantic_confidence_score,"
+            " opening_unit_is_complete_claim, requires_external_context,"
+            " unresolved_deictic_reference, host_or_attribution_setup,"
+            " topic_intro_only, payoff_changes_topic,"
+            " hook_semantic_reason_codes,"
         )
     last_error = "unknown"
 
@@ -2057,6 +2300,7 @@ def _hook_gate_v2_policy(highlight: Dict) -> Optional[Dict]:
     if selection_profile not in {
         MOTIVATIONAL_TENSION_MICRO_V2,
         BF_FEED_STOP_V1,
+        BF_FEED_STOP_V2,
     }:
         return None
     return _profiles.SELECTION_PROFILES.get(selection_profile, {})
@@ -2074,7 +2318,16 @@ def _apply_growth_v2_decisions(
         or highlight.get("selection_policy_version")
         or ""
     ).strip().lower()
-    if selection_profile == BF_FEED_STOP_V1:
+    if selection_profile == BF_FEED_STOP_V2:
+        item = evaluate_hook_gate_v4_cached(
+            dict(highlight),
+            timed_words=hook_gate_words,
+            policy=policy,
+            transcript_hash=(
+                transcript_hash or transcript_word_timing_hash(hook_gate_words)
+            ),
+        )
+    elif selection_profile == BF_FEED_STOP_V1:
         item = evaluate_hook_gate_v3_cached(
             dict(highlight),
             timed_words=hook_gate_words,
@@ -2133,13 +2386,20 @@ def align_motivational_boundaries(
         growth_v2_policy = _hook_gate_v2_policy(item)
         old_start = _coerce_float(item.get("speech_start_time", item.get("start_time")))
         old_end = _coerce_float(item.get("speech_end_time", item.get("end_time")))
-        hook_text = str(
-            item.get("opening_exact_quote")
-            if growth_v2_policy is not None
-            and item.get("opening_exact_quote")
-            else item.get("hook_sentence")
+        item_selection_profile = str(
+            item.get("selection_profile")
+            or item.get("selection_policy_version")
             or ""
-        )
+        ).strip().lower()
+        if (
+            item_selection_profile == BF_FEED_STOP_V2
+            and item.get("opening_unit_exact_quote")
+        ):
+            hook_text = str(item["opening_unit_exact_quote"])
+        elif growth_v2_policy is not None and item.get("opening_exact_quote"):
+            hook_text = str(item["opening_exact_quote"])
+        else:
+            hook_text = str(item.get("hook_sentence") or "")
         payoff_text = str(item.get("hook_payoff_phrase") or hook_text)
         takeaway_text = str(
             item.get("earliest_complete_takeaway_sentence")
@@ -2276,7 +2536,7 @@ def align_motivational_boundaries(
                 or item.get("selection_policy_version")
                 or ""
             ).strip().lower()
-            == BF_FEED_STOP_V1
+            in {BF_FEED_STOP_V1, BF_FEED_STOP_V2}
         ):
             # This is the actual editorial render boundary: no more than 80ms
             # of authentic lead, and never enough room to admit the previous

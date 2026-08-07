@@ -1,6 +1,6 @@
 """Deterministic highlight ranking and hard quality guardrails."""
 import re
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Mapping, Optional, Set
 
 from . import profiles as _profiles
 from .profiles import CONTENT_PROFILES, MOTIVATIONAL_PODCAST, is_motivational_profile
@@ -21,13 +21,448 @@ BF_FEED_STOP_V1 = getattr(
     "BF_FEED_STOP_V1",
     "bf_feed_stop_v1",
 )
+BF_FEED_STOP_V2 = getattr(
+    _profiles,
+    "BF_FEED_STOP_V2",
+    "bf_feed_stop_v2",
+)
 MICRO_SELECTION_PROFILES = frozenset(
     {
         MOTIVATIONAL_TENSION_MICRO_V1,
         MOTIVATIONAL_TENSION_MICRO_V2,
         BF_FEED_STOP_V1,
+        BF_FEED_STOP_V2,
     }
 )
+
+
+def _matches_mapping_subset(actual: object, expected: Mapping) -> bool:
+    """Return True only for an exact-type recursive mapping subset."""
+
+    if not isinstance(actual, Mapping) or not isinstance(expected, Mapping):
+        return False
+    for key, expected_value in expected.items():
+        if key not in actual:
+            return False
+        actual_value = actual[key]
+        if isinstance(expected_value, Mapping):
+            if not _matches_mapping_subset(actual_value, expected_value):
+                return False
+        elif (
+            type(actual_value) is not type(expected_value)
+            or actual_value != expected_value
+        ):
+            return False
+    return True
+
+
+def _exact_value_equal(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _exact_value_equal(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _exact_value_equal(left, right)
+            for left, right in zip(actual, expected)
+        )
+    return actual == expected
+
+
+def _spoken_clarity_gate_reasons(
+    item: Dict,
+    transcript: Dict,
+    *,
+    expected_version: str,
+    expected_provider_identity: Optional[Mapping],
+    expected_source_hash: Optional[str] = None,
+    semantic_authority: Optional[str] = None,
+) -> List[str]:
+    """Verify sealed clarity evidence and return deterministic reject reasons.
+
+    Imports stay local so legacy/V1 ranking neither imports nor requires the
+    V2 evidence contract.  Every verification failure becomes an ordinary
+    ineligible reason; malformed untrusted evidence can never abort ranking or
+    fall through as eligible.
+    """
+
+    report = item.get("spokenClarityReport")
+    if not isinstance(report, dict):
+        return ["spoken_clarity_evidence_missing"]
+
+    try:
+        from .artifact_contracts import transcript_timing_hash
+        from .spoken_clarity import verify_spoken_clarity_report
+
+        speech_start = item.get("speech_start_time", item.get("start_time"))
+        speech_end = item.get("speech_end_time", item.get("end_time"))
+        verified = verify_spoken_clarity_report(
+            report,
+            source_hash=expected_source_hash,
+            transcript_timing_hash=transcript_timing_hash(transcript),
+            speech_interval=(speech_start, speech_end),
+        )
+        counts = verified["counts"]
+        opening_asr = verified["evidence"]["openingAsr"]
+        aliases = {
+            "spokenClarityStatus": verified["status"],
+            "spokenClarityEligible": verified["eligible"],
+            "spokenClarityRejectionReasons": verified["rejectionReasons"],
+            "spokenClarityReviewReasons": verified["reviewReasons"],
+            "spoken_clarity_decision_version": verified["decisionVersion"],
+            "spoken_clarity_status": verified["status"],
+            "spoken_clarity_eligible": verified["eligible"],
+            "spoken_clarity_reject_reasons": verified["rejectionReasons"],
+            "spoken_clarity_review_reasons": verified["reviewReasons"],
+            "spoken_clarity_deterministic_reasons": verified[
+                "deterministicReasons"
+            ],
+            "spoken_clarity_provider_status": verified["providerStatus"],
+            "spoken_clarity_adjacent_duplicate_count": counts[
+                "adjacentDuplicates"
+            ],
+            "spoken_clarity_repeated_phrase_count": counts[
+                "repeatedPhraseRestarts"
+            ],
+            "spoken_clarity_searching_pause_count": counts[
+                "searchingInternalPauses"
+            ],
+            "spoken_clarity_opening_asr_mean_confidence": opening_asr[
+                "meanWordConfidence"
+            ],
+            "spoken_clarity_opening_asr_low_ratio": opening_asr[
+                "lowConfidenceWordRatio"
+            ],
+            "spoken_clarity_opening_asr_token_match_ratio": opening_asr[
+                "tokenMatchRatio"
+            ],
+        }
+    except Exception:
+        return ["spoken_clarity_report_invalid"]
+
+    reasons: List[str] = []
+    if verified.get("decisionVersion") != expected_version:
+        reasons.append("spoken_clarity_decision_version_mismatch")
+    if expected_provider_identity is not None and not _matches_mapping_subset(
+        verified.get("providerIdentity"),
+        expected_provider_identity,
+    ):
+        reasons.append("spoken_clarity_provider_identity_mismatch")
+    if any(
+        not _exact_value_equal(item.get(field), expected)
+        for field, expected in aliases.items()
+    ):
+        reasons.append("spoken_clarity_report_alias_mismatch")
+
+    clarity_status = str(verified.get("status") or "").strip().lower()
+    deterministic = verified.get("deterministicReasons")
+    if str(semantic_authority or "").strip() == "hook_gate_v4":
+        # HookGate V4 verifies the complete opening proposition and its
+        # relationship to the payoff.  The older SpokenClarity V1.2 lexical
+        # approximations must not veto that semantic proof, but every acoustic
+        # or fluency failure remains fail-closed.
+        semantic_only = {
+            "spoken_clarity_hook_subject_or_claim_missing",
+            "spoken_clarity_opening_point_anchor_missing",
+        }
+        deterministic = [
+            reason
+            for reason in (deterministic or [])
+            if str(reason or "").strip() not in semantic_only
+        ]
+        clarity_status = "pass" if not deterministic else clarity_status
+    if clarity_status != "pass" or deterministic:
+        if isinstance(deterministic, list):
+            for reason in deterministic:
+                normalized = str(reason or "").strip()
+                if normalized and normalized not in reasons:
+                    reasons.append(normalized)
+        if not deterministic:
+            reasons.append(
+                f"spoken_clarity_{clarity_status}"
+                if clarity_status and clarity_status != "pass"
+                else "spoken_clarity_not_eligible"
+            )
+    return reasons
+
+
+def _delivery_quality_gate_reasons(
+    item: Dict,
+    transcript: Dict,
+    *,
+    expected_version: str,
+    expected_provider_identity: Optional[Mapping],
+    expected_source_hash: Optional[str] = None,
+) -> List[str]:
+    """Verify sealed, source-bound observable delivery evidence fail-closed."""
+
+    report = item.get("deliveryQualityReport")
+    if not isinstance(report, dict):
+        return ["delivery_quality_evidence_missing"]
+    try:
+        from .artifact_contracts import transcript_timing_hash
+        from .delivery_quality import verify_delivery_quality_report
+
+        speech_start = item.get("speech_start_time", item.get("start_time"))
+        speech_end = item.get("speech_end_time", item.get("end_time"))
+        verified = verify_delivery_quality_report(
+            report,
+            source_hash=expected_source_hash,
+            transcript_timing_hash=transcript_timing_hash(transcript),
+            speech_interval=(speech_start, speech_end),
+        )
+        aliases = {
+            "deliveryQualityStatus": verified["status"],
+            "deliveryQualityEligible": verified["eligible"],
+            "deliveryQualityStrength": verified["deliveryStrength"],
+            "deliveryQualityRejectionReasons": verified[
+                "rejectionReasons"
+            ],
+            "deliveryQualityReviewReasons": verified["reviewReasons"],
+            "delivery_quality_decision_version": verified[
+                "decisionVersion"
+            ],
+            "delivery_quality_status": verified["status"],
+            "delivery_quality_eligible": verified["eligible"],
+            "delivery_quality_strength": verified["deliveryStrength"],
+            "delivery_quality_reject_reasons": verified[
+                "rejectionReasons"
+            ],
+            "delivery_quality_review_reasons": verified["reviewReasons"],
+            "delivery_quality_provider_status": verified["providerStatus"],
+        }
+    except Exception:
+        return ["delivery_quality_report_invalid"]
+
+    reasons: List[str] = []
+    if verified.get("decisionVersion") != expected_version:
+        reasons.append("delivery_quality_decision_version_mismatch")
+    if expected_provider_identity is not None and not _matches_mapping_subset(
+        verified.get("providerIdentity"),
+        expected_provider_identity,
+    ):
+        reasons.append("delivery_quality_provider_identity_mismatch")
+    if any(
+        not _exact_value_equal(item.get(field), expected)
+        for field, expected in aliases.items()
+    ):
+        reasons.append("delivery_quality_report_alias_mismatch")
+
+    status = str(verified.get("status") or "").strip().lower()
+    deterministic = verified.get("deterministicReasons")
+    if status != "pass" or verified.get("eligible") is not True:
+        if isinstance(deterministic, list):
+            reasons.extend(
+                str(reason).strip()
+                for reason in deterministic
+                if str(reason or "").strip()
+            )
+        if not deterministic:
+            reasons.append(
+                f"delivery_quality_{status}"
+                if status and status != "pass"
+                else "delivery_quality_not_eligible"
+            )
+    return list(dict.fromkeys(reasons))
+
+
+_HOOK_GATE_V4_AUTHORITATIVE_FIELDS = (
+    "speechStart",
+    "speechEnd",
+    "speechDuration",
+    "firstWordLatencyMs",
+    "openingUnitExactQuote",
+    "openingUnitStartSeconds",
+    "openingUnitEndSeconds",
+    "openingUnitStartTokenIndex",
+    "openingUnitEndTokenIndex",
+    "openingUnitExactAligned",
+    "topicComprehensionExactQuote",
+    "topicComprehensionStartSeconds",
+    "topicComprehensionEndSeconds",
+    "topicComprehensionStartTokenIndex",
+    "topicComprehensionEndTokenIndex",
+    "topicComprehensionExactAligned",
+    "payoffExactQuote",
+    "payoffStartSeconds",
+    "payoffEndSeconds",
+    "payoffStartTokenIndex",
+    "payoffEndTokenIndex",
+    "payoffExactAligned",
+    "openingUnitDurationSeconds",
+    "topicComprehensionLatencySeconds",
+    "openingUnitType",
+    "hookMechanism",
+    "hookSemanticTopic",
+    "openingClaimSummary",
+    "wholePointSummary",
+    "hookSemanticReasonCodes",
+    "hookSemanticScores",
+    "hookSemanticFlags",
+    "hookSemanticEvidenceSource",
+    "hookSemanticCanonicalComplete",
+    "hookGateScore",
+    "hookGateScoreComponents",
+    "hookGatePenalties",
+    "hookGateThresholds",
+    "hookGateVersion",
+    "hookGatePromptVersion",
+    "hookGateDecisionVersion",
+    "selectionPolicyVersion",
+    "hookGateStatus",
+    "hookGateEligible",
+    "hookGateRejectionReasons",
+    "hookGateReviewReasons",
+    "hook_gate_score",
+    "hook_gate_version",
+    "hook_gate_prompt_version",
+    "hook_gate_decision_version",
+    "hook_gate_status",
+    "hook_gate_eligible",
+    "hook_gate_reject_reasons",
+    "hook_gate_review_reasons",
+    "hook_gate_deterministic_reasons",
+    "hook_family",
+)
+
+_HOOK_GATE_V4_REPORT_DECISION_FIELDS = (
+    "hookGateVersion",
+    "promptVersion",
+    "decisionVersion",
+    "selectionPolicyVersion",
+    "speechInterval",
+    "firstWordLatencyMs",
+    "openingUnit",
+    "topicComprehension",
+    "payoff",
+    "semanticMeaning",
+    "semanticFlags",
+    "semanticScores",
+    "hookGateScore",
+    "hookGateScoreComponents",
+    "hookGatePenalties",
+    "thresholds",
+    "status",
+    "eligible",
+    "rejectionReasons",
+    "reviewReasons",
+)
+
+
+def _hook_gate_v4_transcript_words(transcript: Dict) -> List[Dict]:
+    words: List[Dict] = []
+    for segment in transcript.get("segments", []):
+        segment_words = (
+            segment.get("words")
+            if isinstance(segment, dict)
+            and isinstance(segment.get("words"), list)
+            else []
+        )
+        for word in segment_words:
+            if isinstance(word, dict):
+                words.append(dict(word))
+    return words
+
+
+def _hook_gate_v4_gate_reasons(
+    item: Dict,
+    transcript: Dict,
+    *,
+    expected_source_hash: Optional[str] = None,
+) -> List[str]:
+    """Recompute and verify the complete V4 decision at ranking admission.
+
+    Candidate aliases are convenient diagnostics, never proof.  This boundary
+    independently reruns the pure evaluator from exact timed words, verifies a
+    sealed transcript-bound report, and requires every authoritative alias and
+    every decision-bearing report field to exactly match that recomputation.
+    """
+
+    from .hook_gate_v4 import (
+        build_hook_gate_v4_report,
+        evaluate_hook_gate_v4,
+        transcript_word_timing_hash,
+        verify_hook_gate_v4_report,
+    )
+
+    reasons: List[str] = []
+    words = _hook_gate_v4_transcript_words(transcript)
+    policy = _profiles.SELECTION_PROFILES.get(BF_FEED_STOP_V2, {})
+    recomputed = evaluate_hook_gate_v4(item, words, policy=policy)
+    if (
+        recomputed.get("hook_gate_status") != "pass"
+        or recomputed.get("hook_gate_eligible") is not True
+    ):
+        deterministic = recomputed.get("hook_gate_deterministic_reasons")
+        if isinstance(deterministic, list):
+            reasons.extend(
+                str(reason).strip()
+                for reason in deterministic
+                if str(reason or "").strip()
+            )
+        reasons.append("hook_gate_v4_recomputed_not_eligible")
+
+    if any(
+        not _exact_value_equal(item.get(field), recomputed.get(field))
+        for field in _HOOK_GATE_V4_AUTHORITATIVE_FIELDS
+    ):
+        reasons.append("hook_gate_v4_alias_mismatch")
+
+    report = item.get("hookGateReport")
+    if not isinstance(report, dict):
+        reasons.append("hook_gate_v4_report_missing")
+        return list(dict.fromkeys(reasons))
+
+    word_timing_hash = transcript_word_timing_hash(words)
+    report_timing_hash = str(report.get("transcriptTimingHash") or "").strip()
+    if report_timing_hash != word_timing_hash:
+        reasons.append("hook_gate_v4_report_invalid")
+        return list(dict.fromkeys(reasons))
+    bound_source_hash = (
+        str(expected_source_hash or "").strip().lower().removeprefix("sha256:")
+        or str(
+            item.get("sourceHash") or item.get("source_hash") or ""
+        ).strip().lower().removeprefix("sha256:")
+        or None
+    )
+    if bound_source_hash is None and report.get("sourceHash") is not None:
+        reasons.append("hook_gate_v4_report_invalid")
+        return list(dict.fromkeys(reasons))
+    try:
+        verified = verify_hook_gate_v4_report(
+            report,
+            source_hash=bound_source_hash,
+            transcript_timing_hash=report_timing_hash,
+            speech_interval=(
+                recomputed.get("speech_start_time", recomputed.get("start_time")),
+                recomputed.get("speech_end_time", recomputed.get("end_time")),
+            ),
+            require_pass=True,
+        )
+    except Exception:
+        reasons.append("hook_gate_v4_report_invalid")
+        return list(dict.fromkeys(reasons))
+
+    expected_report = build_hook_gate_v4_report(
+        recomputed,
+        source_hash=bound_source_hash,
+        transcript_timing_hash=report_timing_hash,
+        render_settings=item,
+        experiment={
+            "experimentId": item.get("experiment_id"),
+            "cohortId": item.get("experiment_cohort"),
+            "changedAxes": item.get("changedAxes") or [],
+        },
+    )
+    if any(
+        not _exact_value_equal(verified.get(field), expected_report.get(field))
+        for field in _HOOK_GATE_V4_REPORT_DECISION_FIELDS
+    ):
+        reasons.append("hook_gate_v4_report_recomputation_mismatch")
+    return list(dict.fromkeys(reasons))
 
 
 CTA_PHRASES = (
@@ -616,6 +1051,12 @@ def rank_highlights(
     selection_profile: Optional[str] = None,
     *,
     require_speech_cleanliness: bool = False,
+    expected_spoken_clarity_version: Optional[str] = None,
+    expected_spoken_clarity_provider_identity: Optional[Mapping] = None,
+    spoken_clarity_semantic_authority: Optional[str] = None,
+    expected_delivery_quality_version: Optional[str] = None,
+    expected_delivery_quality_provider_identity: Optional[Mapping] = None,
+    expected_source_hash: Optional[str] = None,
 ) -> List[Dict]:
     """Score candidates deterministically and place hard rejects last."""
     duration_total = _number(transcript.get("duration"), 0.0)
@@ -630,6 +1071,8 @@ def rank_highlights(
         normalized_selection_profile == MOTIVATIONAL_TENSION_MICRO_V2
     )
     hook_gate_v3 = normalized_selection_profile == BF_FEED_STOP_V1
+    hook_gate_v4 = normalized_selection_profile == BF_FEED_STOP_V2
+    feed_stop_gate = hook_gate_v3 or hook_gate_v4
     educational_semantics = normalized_content_type in {"tutorial", "lecture"}
     gaming_content = normalized_content_type == "gaming"
     motivational_content = (
@@ -683,7 +1126,15 @@ def rank_highlights(
                 + 0.18 * v2_duration_fit
             )
         rejection_reasons = []
-        if hook_gate_v2 or hook_gate_v3:
+        if hook_gate_v2 or feed_stop_gate:
+            if hook_gate_v4:
+                rejection_reasons.extend(
+                    _hook_gate_v4_gate_reasons(
+                        item,
+                        transcript,
+                        expected_source_hash=expected_source_hash,
+                    )
+                )
             gate_status = str(item.get("hook_gate_status") or "").strip().lower()
             expected_decision_version = str(
                 _profiles.SELECTION_PROFILES[
@@ -761,7 +1212,7 @@ def rank_highlights(
                 rejection_reasons.append(
                     "semantic_closure_decision_version_mismatch"
                 )
-            if hook_gate_v3 and require_speech_cleanliness:
+            if feed_stop_gate and require_speech_cleanliness:
                 cleanliness_status = str(
                     item.get("speech_cleanliness_status") or ""
                 ).strip().lower()
@@ -807,6 +1258,36 @@ def rank_highlights(
                     rejection_reasons.append(
                         "speech_cleanliness_decision_version_mismatch"
                     )
+            if feed_stop_gate and expected_spoken_clarity_version:
+                expected_clarity_version = str(
+                    expected_spoken_clarity_version
+                ).strip()
+                for reason in _spoken_clarity_gate_reasons(
+                    item,
+                    transcript,
+                    expected_version=expected_clarity_version,
+                    expected_provider_identity=(
+                        expected_spoken_clarity_provider_identity
+                    ),
+                    expected_source_hash=expected_source_hash,
+                    semantic_authority=spoken_clarity_semantic_authority,
+                ):
+                    if reason not in rejection_reasons:
+                        rejection_reasons.append(reason)
+            if feed_stop_gate and expected_delivery_quality_version:
+                for reason in _delivery_quality_gate_reasons(
+                    item,
+                    transcript,
+                    expected_version=str(
+                        expected_delivery_quality_version
+                    ).strip(),
+                    expected_provider_identity=(
+                        expected_delivery_quality_provider_identity
+                    ),
+                    expected_source_hash=expected_source_hash,
+                ):
+                    if reason not in rejection_reasons:
+                        rejection_reasons.append(reason)
         if bool(item.get("is_promotional")):
             rejection_reasons.append("model_promotional")
         if bool(item.get("is_outro")):
@@ -882,9 +1363,11 @@ def rank_highlights(
             measured_payoff_latency = (
                 item.get("firstPayoffSeconds")
                 if hook_gate_v3
+                else item.get("topicComprehensionLatencySeconds")
+                if hook_gate_v4
                 else item.get("hook_payoff_latency_seconds")
             )
-            payoff_latency_limit = 6.0 if hook_gate_v3 else 5.0
+            payoff_latency_limit = 6.0 if feed_stop_gate else 5.0
             if (
                 measured_payoff_latency is not None
                 and _number(measured_payoff_latency, 99.0)
@@ -900,7 +1383,7 @@ def rank_highlights(
                 rejection_reasons.append("generated_cuts_not_allowed")
             if motivational.get("ends_with_connector"):
                 rejection_reasons.append("incomplete_ending_connector")
-        if micro_selection and not hook_gate_v3:
+        if micro_selection and not feed_stop_gate:
             tension_dimensions = (
                 _number(micro_components.get("semantic_tension_score")),
                 _number(micro_components.get("contrast_score")),
@@ -973,7 +1456,7 @@ def rank_highlights(
             if duration > micro_hard_max:
                 rejection_reasons.append(
                     "micro_duration_over_24s"
-                    if hook_gate_v3
+                    if feed_stop_gate
                     else "micro_duration_over_30s"
                     if hook_gate_v2
                     else "micro_duration_over_22s"
@@ -1190,12 +1673,16 @@ def rank_highlights(
             final_score += 2.0
         if duration_total > 0 and _number(item.get("start_time")) / duration_total >= 0.90:
             final_score -= 2.0
-        if hook_gate_v3:
-            # V3 is the authoritative semantic ranking. Rendering metadata and
+        if feed_stop_gate:
+            # The versioned HookGate is the authoritative semantic ranking. Rendering metadata and
             # legacy model scores cannot perturb the feed-stop order.
             final_score = _number(item.get("hookGateScore"), -1.0)
             if final_score < 0.0:
-                rejection_reasons.append("hook_gate_v3_score_missing")
+                rejection_reasons.append(
+                    "hook_gate_v4_score_missing"
+                    if hook_gate_v4
+                    else "hook_gate_v3_score_missing"
+                )
                 final_score = 0.0
 
         item.update(promotion)
@@ -1274,6 +1761,8 @@ def rank_highlights(
                 _number(
                     item.get("firstPayoffSeconds")
                     if hook_gate_v3
+                    else item.get("topicComprehensionLatencySeconds")
+                    if hook_gate_v4
                     else item.get("hook_payoff_latency_seconds"),
                     999.0,
                 ),

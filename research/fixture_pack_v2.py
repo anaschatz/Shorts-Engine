@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build an immutable, self-contained Budget Friendly replay corpus.
 
-The packer reads existing local JSON evidence only. It never downloads media,
-calls a model, renders, enhances, uploads, or infers negative human labels.
-Explicit human rejections are verified and reported as read-only diagnostics;
-they never become positives or make a dataset promotable.
+The packer reads existing local capture evidence only. It never downloads
+media, calls a model, renders, enhances, uploads, or infers negative human
+labels. Exact-preview rejections additionally rehash their content-addressed
+local review media. Explicit human rejections are reported as read-only
+diagnostics; they never become positives or make a dataset promotable.
 """
 from __future__ import annotations
 
@@ -27,10 +28,12 @@ from shorts_generator.growth_replay import load_replay_dataset
 from shorts_generator.config import LOCAL_AUTORESEARCH_EVIDENCE_DIR
 from shorts_generator.replay_capture import (
     HUMAN_LABEL_SEMANTICS,
+    HUMAN_PREVIEW_REJECTION_ARTIFACT_TYPE,
     HUMAN_REJECTION_ARTIFACT_TYPE,
     LABEL_ARTIFACT_TYPE,
     verify_replay_capture_dataset,
     verify_replay_capture_label,
+    verify_replay_human_preview_rejection,
     verify_replay_human_rejection,
 )
 
@@ -413,6 +416,13 @@ def discover_negative_capture_paths(capture_dir: Path) -> list[Path]:
     return sorted((capture_dir / "negative-labels").glob("*/*.json"))
 
 
+def discover_negative_preview_capture_paths(capture_dir: Path) -> list[Path]:
+    """Discover diagnostic-only exact source-preview rejection objects."""
+    return sorted(
+        (capture_dir / "negative-preview-labels").glob("*/*.json")
+    )
+
+
 def _capture_paths(capture_dir: Path) -> Tuple[list[Path], list[Path]]:
     return (
         sorted((capture_dir / "datasets").glob("*.json")),
@@ -433,18 +443,43 @@ def _read_artifacts(paths: Sequence[Path]) -> list[Dict]:
     return artifacts
 
 
+def _preview_media_path(
+    artifact: Mapping[str, object],
+    review_media_dir: Path,
+) -> Path:
+    """Resolve only the core contract's content-addressed media filename."""
+
+    media = artifact.get("reviewMedia")
+    if not isinstance(media, Mapping):
+        raise ValueError("capture preview rejection reviewMedia is invalid")
+    media_hash = str(media.get("sha256") or "").strip().lower()
+    container = str(media.get("container") or "").strip().lower()
+    if (
+        len(media_hash) != 64
+        or any(character not in "0123456789abcdef" for character in media_hash)
+        or not container
+        or len(container) > 16
+        or not container.isalnum()
+    ):
+        raise ValueError("capture preview rejection media identity is invalid")
+    return review_media_dir / f"{media_hash}.{container}"
+
+
 def ingest_capture_artifacts(
     *,
     dataset_artifacts: Sequence[Mapping[str, object]],
     label_artifacts: Sequence[Mapping[str, object]],
     negative_label_artifacts: Sequence[Mapping[str, object]] = (),
+    negative_preview_label_artifacts: Sequence[Mapping[str, object]] = (),
+    review_media_dir: Path | None = None,
     diagnostics: Dict[str, object] | None = None,
 ) -> list[Dict]:
     """Validate exact hash joins and return positive-only replay inputs.
 
-    Explicit rejection artifacts are verified against the same immutable
-    dataset universe, then exposed only as aggregate diagnostics. They do not
-    alter approval semantics or make an otherwise orphan dataset promotable.
+    Candidate and exact-preview rejection artifacts are verified against the
+    same immutable dataset universe, then exposed only as aggregate
+    diagnostics. They do not alter approval semantics or make an otherwise
+    orphan dataset promotable.
     """
     datasets_by_hash: Dict[str, Dict] = {}
     datasets_by_ranking: Dict[str, Dict] = {}
@@ -487,6 +522,37 @@ def ingest_capture_artifacts(
             raise ValueError("capture human rejection references an unknown dataset")
         rejection = verify_replay_human_rejection(dict(raw), dataset)
         rejection_events_by_dataset[dataset_hash][
+            str(rejection["contentHash"])
+        ] = rejection
+
+    preview_rejection_events_by_dataset: Dict[str, Dict[str, Dict]] = {
+        dataset_hash: {} for dataset_hash in datasets_by_hash
+    }
+    if negative_preview_label_artifacts and review_media_dir is None:
+        raise ValueError(
+            "capture preview rejection verification requires review media"
+        )
+    for raw in negative_preview_label_artifacts:
+        if raw.get("artifactType") != HUMAN_PREVIEW_REJECTION_ARTIFACT_TYPE:
+            raise ValueError(
+                f"expected {HUMAN_PREVIEW_REJECTION_ARTIFACT_TYPE}"
+            )
+        dataset_hash = str(raw.get("datasetHash") or "")
+        dataset = datasets_by_hash.get(dataset_hash)
+        if dataset is None:
+            raise ValueError(
+                "capture human preview rejection references an unknown dataset"
+            )
+        media_path = _preview_media_path(raw, review_media_dir)
+        # The core verifier preserves legacy V1.0 operator-attested events,
+        # while fail-closing V1.1 unless its nested decode provenance is
+        # sealed, passing, and bound to this dataset and archived media.
+        rejection = verify_replay_human_preview_rejection(
+            dict(raw),
+            dataset,
+            review_media_path=media_path,
+        )
+        preview_rejection_events_by_dataset[dataset_hash][
             str(rejection["contentHash"])
         ] = rejection
 
@@ -589,6 +655,11 @@ def ingest_capture_artifacts(
             for events in rejection_events_by_dataset.values()
             for event in events.values()
         ]
+        preview_rejection_events = [
+            event
+            for events in preview_rejection_events_by_dataset.values()
+            for event in events.values()
+        ]
         diagnostics.clear()
         diagnostics.update(
             {
@@ -601,6 +672,23 @@ def ingest_capture_artifacts(
                     {
                         (str(event["datasetHash"]), str(event["candidateHash"]))
                         for event in rejection_events
+                    }
+                ),
+                "explicitHumanPreviewRejectionCount": len(
+                    preview_rejection_events
+                ),
+                "rejectedSourceIntervalCount": len(
+                    {
+                        (
+                            str(
+                                datasets_by_hash[str(event["datasetHash"])][
+                                    "sourceHash"
+                                ]
+                            ),
+                            int(event["sourceIntervalMs"]["startMs"]),
+                            int(event["sourceIntervalMs"]["endMs"]),
+                        )
+                        for event in preview_rejection_events
                     }
                 ),
             }
@@ -645,6 +733,7 @@ def build_capture_activation_readiness(
     dataset_artifact_count: int | None = None,
     label_artifact_count: int | None = None,
     negative_label_artifact_count: int | None = None,
+    negative_preview_artifact_count: int | None = None,
 ) -> Dict[str, object]:
     """Measure exact approval evidence against the frozen activation gates."""
     policy = _capture_gate_policy(contract)
@@ -719,15 +808,33 @@ def build_capture_activation_readiness(
         0,
     )
     rejected_candidate_count = diagnostics.get("rejectedCandidateCount", 0)
+    explicit_human_preview_rejection_count = diagnostics.get(
+        "explicitHumanPreviewRejectionCount",
+        0,
+    )
+    rejected_source_interval_count = diagnostics.get(
+        "rejectedSourceIntervalCount",
+        0,
+    )
     for field, value in (
         ("explicitHumanRejectionCount", explicit_human_rejection_count),
         ("rejectedCandidateCount", rejected_candidate_count),
+        (
+            "explicitHumanPreviewRejectionCount",
+            explicit_human_preview_rejection_count,
+        ),
+        ("rejectedSourceIntervalCount", rejected_source_interval_count),
     ):
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(f"capture diagnostics {field} is invalid")
     if rejected_candidate_count > explicit_human_rejection_count:
         raise ValueError(
             "capture diagnostics rejectedCandidateCount exceeds rejection events"
+        )
+    if rejected_source_interval_count > explicit_human_preview_rejection_count:
+        raise ValueError(
+            "capture diagnostics rejectedSourceIntervalCount exceeds preview "
+            "rejection events"
         )
     if promotable_dataset_count != source_count:
         raise ValueError("capture diagnostics promotable count is inconsistent")
@@ -788,6 +895,11 @@ def build_capture_activation_readiness(
             if negative_label_artifact_count is not None
             else explicit_human_rejection_count
         ),
+        "negativePreviewArtifactCount": (
+            int(negative_preview_artifact_count)
+            if negative_preview_artifact_count is not None
+            else explicit_human_preview_rejection_count
+        ),
         "sourceCount": source_count,
         "candidateCount": candidate_count,
         "humanPositiveCount": human_positive_count,
@@ -796,6 +908,10 @@ def build_capture_activation_readiness(
         "approvalEventCount": approval_event_count,
         "explicitHumanRejectionCount": explicit_human_rejection_count,
         "rejectedCandidateCount": rejected_candidate_count,
+        "explicitHumanPreviewRejectionCount": (
+            explicit_human_preview_rejection_count
+        ),
+        "rejectedSourceIntervalCount": rejected_source_interval_count,
         "capturedDatasetCount": captured_dataset_count,
         "promotableDatasetCount": promotable_dataset_count,
         "skippedOrphanDatasetCount": skipped_orphan_count,
@@ -820,6 +936,9 @@ def assess_capture_data_readiness(
     """Inspect a mutable capture inbox without promoting or mutating it."""
     dataset_paths, label_paths = _capture_paths(capture_dir)
     negative_label_paths = discover_negative_capture_paths(capture_dir)
+    negative_preview_paths = discover_negative_preview_capture_paths(
+        capture_dir
+    )
     diagnostics: Dict[str, object] = {
         "capturedDatasetCount": len(dataset_paths),
         "promotableDatasetCount": 0,
@@ -827,12 +946,14 @@ def assess_capture_data_readiness(
         "skippedOrphanDatasetIds": [],
         "explicitHumanRejectionCount": 0,
         "rejectedCandidateCount": 0,
+        "explicitHumanPreviewRejectionCount": 0,
+        "rejectedSourceIntervalCount": 0,
     }
     prepared: list[Dict] = []
     integrity_error = None
     if not dataset_paths and label_paths:
         integrity_error = "capture inbox has label artifacts but no dataset artifacts"
-    elif not dataset_paths and negative_label_paths:
+    elif not dataset_paths and (negative_label_paths or negative_preview_paths):
         integrity_error = (
             "capture inbox has human rejection artifacts but no dataset artifacts"
         )
@@ -842,6 +963,10 @@ def assess_capture_data_readiness(
                 dataset_artifacts=_read_artifacts(dataset_paths),
                 label_artifacts=_read_artifacts(label_paths),
                 negative_label_artifacts=_read_artifacts(negative_label_paths),
+                negative_preview_label_artifacts=_read_artifacts(
+                    negative_preview_paths
+                ),
+                review_media_dir=capture_dir / "review-media",
                 diagnostics=diagnostics,
             )
         except (OSError, TypeError, ValueError, KeyError) as error:
@@ -857,6 +982,7 @@ def assess_capture_data_readiness(
         dataset_artifact_count=len(dataset_paths),
         label_artifact_count=len(label_paths),
         negative_label_artifact_count=len(negative_label_paths),
+        negative_preview_artifact_count=len(negative_preview_paths),
     )
 
 
@@ -866,15 +992,33 @@ def build_fixture_pack_from_captures(
     dataset_paths: Sequence[Path],
     label_paths: Sequence[Path],
     negative_label_paths: Sequence[Path] = (),
+    negative_preview_label_paths: Sequence[Path] = (),
+    review_media_dir: Path | None = None,
     output_dir: Path,
     activation_contract: Mapping[str, object] | None = None,
 ) -> Dict[str, object]:
     """Promote an append-only approval inbox into one frozen replay pack."""
+    if negative_preview_label_paths and review_media_dir is None:
+        preview_roots = {
+            path.parents[2]
+            for path in negative_preview_label_paths
+            if len(path.parents) >= 3
+            and path.parents[1].name == "negative-preview-labels"
+        }
+        if len(preview_roots) != 1:
+            raise ValueError(
+                "preview rejection paths do not share one capture root"
+            )
+        review_media_dir = next(iter(preview_roots)) / "review-media"
     ingestion_diagnostics: Dict[str, object] = {}
     prepared = ingest_capture_artifacts(
         dataset_artifacts=_read_artifacts(dataset_paths),
         label_artifacts=_read_artifacts(label_paths),
         negative_label_artifacts=_read_artifacts(negative_label_paths),
+        negative_preview_label_artifacts=_read_artifacts(
+            negative_preview_label_paths
+        ),
+        review_media_dir=review_media_dir,
         diagnostics=ingestion_diagnostics,
     )
     if not prepared:
@@ -888,6 +1032,9 @@ def build_fixture_pack_from_captures(
             dataset_artifact_count=len(dataset_paths),
             label_artifact_count=len(label_paths),
             negative_label_artifact_count=len(negative_label_paths),
+            negative_preview_artifact_count=len(
+                negative_preview_label_paths
+            ),
         )
         if activation_readiness["activationReady"] is not True:
             raise CaptureActivationUnavailable(activation_readiness)
@@ -1117,11 +1264,20 @@ def build_fixture_pack_from_captures(
             item["approvalEventCount"] for item in label_datasets
         ),
         "negativeLabelArtifactCount": len(negative_label_paths),
+        "negativePreviewArtifactCount": len(
+            negative_preview_label_paths
+        ),
         "explicitHumanRejectionCount": ingestion_diagnostics[
             "explicitHumanRejectionCount"
         ],
         "rejectedCandidateCount": ingestion_diagnostics[
             "rejectedCandidateCount"
+        ],
+        "explicitHumanPreviewRejectionCount": ingestion_diagnostics[
+            "explicitHumanPreviewRejectionCount"
+        ],
+        "rejectedSourceIntervalCount": ingestion_diagnostics[
+            "rejectedSourceIntervalCount"
         ],
         "skippedOrphanDatasetCount": ingestion_diagnostics[
             "skippedOrphanDatasetCount"
@@ -1174,12 +1330,17 @@ def main() -> int:
             return 0 if readiness["activationReady"] is True else 2
         dataset_paths, label_paths = discover_capture_paths(args.capture_dir)
         negative_label_paths = discover_negative_capture_paths(args.capture_dir)
+        negative_preview_paths = discover_negative_preview_capture_paths(
+            args.capture_dir
+        )
         try:
             report = build_fixture_pack_from_captures(
                 root=root,
                 dataset_paths=dataset_paths,
                 label_paths=label_paths,
                 negative_label_paths=negative_label_paths,
+                negative_preview_label_paths=negative_preview_paths,
+                review_media_dir=args.capture_dir / "review-media",
                 output_dir=args.output_dir,
                 activation_contract=contract,
             )

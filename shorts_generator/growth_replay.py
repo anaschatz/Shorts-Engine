@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .artifact_contracts import (
+    FEED_STOP_V3_REPLAY_PROFILE_TUPLE,
     build_candidate_decision,
     build_replay_transcript_manifest,
     candidate_hash,
@@ -303,6 +304,7 @@ def verify_replay_pack(
                 labels,
                 candidates,
                 positives,
+                transcript=transcript,
                 context=f"datasets[{index}]",
             )
             if seen_capture_label_hashes.intersection(exact_label_hashes):
@@ -547,6 +549,7 @@ def _validate_exact_human_label_evidence(
     candidates: Sequence[Dict],
     positives: Sequence[Dict],
     *,
+    transcript: Dict,
     context: str,
 ) -> set[str]:
     """Prove every exact positive has one explicit, hash-bound approval record."""
@@ -578,6 +581,10 @@ def _validate_exact_human_label_evidence(
     ranking_hash = _sha256(
         capture_provenance.get("rankingManifestHash"),
         f"{context}.rankingManifestHash",
+    )
+    replay_transcript_timing_hash = _sha256(
+        capture_provenance.get("transcriptTimingHash"),
+        f"{context}.transcriptTimingHash",
     )
     observed_capture_label_hashes: set[str] = set()
 
@@ -675,21 +682,34 @@ def _validate_exact_human_label_evidence(
                 expected_hash=decision_hash,
             )
             try:
+                candidate_input = {
+                    **decision.get("candidate"),
+                    "candidate_hash": identity,
+                }
+                if decision.get("hookGateReport") is not None:
+                    candidate_input["hookGateReport"] = decision.get(
+                        "hookGateReport"
+                    )
                 rebuilt_decision = build_candidate_decision(
-                    {
-                        **decision.get("candidate"),
-                        "candidate_hash": identity,
-                    },
+                    candidate_input,
                     source_hash,
                     reviewer=str(decision.get("reviewer") or ""),
                     decided_at=str(decision.get("decidedAt") or ""),
                     ranking_manifest_hash=ranking_hash,
                     notes=str(decision.get("notes") or ""),
+                    replay_transcript=transcript,
+                    transcript_timing_hash=replay_transcript_timing_hash,
                 )
             except (TypeError, ValueError) as error:
                 raise ValueError(
                     f"{event_context}: CandidateDecision is not canonical"
                 ) from error
+            decision_profile = (
+                str(decision.get("contentProfile") or "").strip().lower(),
+                str(decision.get("selectionProfile") or "").strip().lower(),
+                str(decision.get("renderProfile") or "").strip().lower(),
+                str(decision.get("formatProfile") or "").strip().lower(),
+            )
             if (
                 rebuilt_decision != decision
                 or decision.get("schemaVersion") != 1
@@ -699,6 +719,11 @@ def _validate_exact_human_label_evidence(
                 or decision.get("candidateHash") != identity
                 or decision.get("candidate") != normalized_candidate(positive)
                 or candidate_hash(decision.get("candidate"), source_hash) != identity
+                or (
+                    decision_profile == FEED_STOP_V3_REPLAY_PROFILE_TUPLE
+                    and decision.get("hookGateReport")
+                    != positive.get("hookGateReport")
+                )
                 or capture_label.get("reviewer") != decision.get("reviewer")
                 or capture_label.get("decidedAt") != decision.get("decidedAt")
                 or capture_label.get("notes") != decision.get("notes", "")
@@ -974,6 +999,7 @@ def load_replay_dataset(spec: Dict, root: Path) -> Dict:
             positive_document,
             candidate_value,
             positives,
+            transcript=transcript,
             context=dataset_id,
         )
         candidates, unmatched_positives = _mark_human_positives_by_identity(

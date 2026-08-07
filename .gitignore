@@ -34,6 +34,10 @@ research/autoresearch-v2/runs/
 youtube_token*.json
 release/results/*.json
 output/performance/
+# Pixabay permits use in rendered works but forbids standalone redistribution.
+# Keep the verified catalog/install metadata in Git and fetch raw assets into
+# private local/deployment storage.
+/assets/music/*.mp3
 viking-brain/sessions/inbox/*.jsonl
 *.refresh-backup-*
 *.unreadable-*

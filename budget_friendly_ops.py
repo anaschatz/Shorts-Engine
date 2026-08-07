@@ -5,16 +5,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import tempfile
 import unicodedata
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
 from shorts_generator.artifact_contracts import (
     ArtifactBindingError,
     CANDIDATE_DECISION_PROFILE_RULES,
     CANDIDATE_PROFILE_FIELDS,
-    FEED_STOP_REPLAY_PROFILE_TUPLE,
+    FEED_STOP_REPLAY_PROFILE_TUPLES,
+    FEED_STOP_V2_REPLAY_PROFILE_TUPLE,
+    FEED_STOP_V3_REPLAY_PROFILE_TUPLE,
     _verify_feed_stop_speech_cleanliness,
+    _verify_feed_stop_spoken_clarity,
+    _verify_feed_stop_v3_evidence,
     build_candidate_decision,
     build_publish_manifest,
     build_replay_transcript_manifest,
@@ -47,14 +53,21 @@ from shorts_generator.production_workflow import (
     render_approved_candidate,
     render_approved_candidates,
 )
+from shorts_generator.preview_provenance import (
+    analyze_preview_source_provenance,
+)
 from shorts_generator.profiles import (
+    BF_FEED_STOP_FORMAT_V1,
     profile_manifest_metadata,
     resolve_profile_bundle,
 )
 from shorts_generator.replay_capture import (
+    HUMAN_PREVIEW_REJECTION_RECEIPT_TYPE,
     HUMAN_REJECTION_RECEIPT_TYPE,
     archive_approved_candidate,
     archive_rejected_candidate,
+    archive_rejected_preview,
+    build_replay_human_preview_rejection,
     build_replay_human_rejection,
     build_replay_capture_dataset,
     write_immutable_json,
@@ -180,7 +193,10 @@ def _review_candidate_from_file(
             raise ArtifactBindingError(f"ranking candidate {field} is incompatible")
     transcript_manifest = ranking.get("replayTranscriptManifest")
     verified_transcript_manifest = None
-    if require_replay_transcript or expected_profile_tuple == FEED_STOP_REPLAY_PROFILE_TUPLE:
+    if (
+        require_replay_transcript
+        or expected_profile_tuple in FEED_STOP_REPLAY_PROFILE_TUPLES
+    ):
         if not isinstance(transcript_manifest, dict):
             raise ArtifactBindingError("ranking lacks a replay transcript manifest")
         verified_transcript_manifest = verify_replay_transcript_manifest(
@@ -192,12 +208,27 @@ def _review_candidate_from_file(
     if declared_candidate_hash != candidate_hash(candidate, source_hash):
         raise ArtifactBindingError("ranking candidate hash is stale")
     verified_speech_report = None
-    if expected_profile_tuple == FEED_STOP_REPLAY_PROFILE_TUPLE:
+    if expected_profile_tuple in FEED_STOP_REPLAY_PROFILE_TUPLES:
         if verified_transcript_manifest is None:
             raise ArtifactBindingError(
                 "feed-stop ranking lacks a replay transcript manifest"
             )
-        if require_eligible:
+        if (
+            require_eligible
+            and expected_profile_tuple == FEED_STOP_V3_REPLAY_PROFILE_TUPLE
+        ):
+            verified_v3_evidence = _verify_feed_stop_v3_evidence(
+                candidate,
+                source_hash,
+                transcript_timing_hash=verified_transcript_manifest[
+                    "transcriptTimingHash"
+                ],
+                replay_transcript=verified_transcript_manifest["transcript"],
+            )
+            verified_speech_report = verified_v3_evidence[
+                "speechCleanlinessReport"
+            ]
+        elif require_eligible:
             verified_speech_report = _verify_feed_stop_speech_cleanliness(
                 candidate,
                 source_hash,
@@ -207,6 +238,25 @@ def _review_candidate_from_file(
             )
         else:
             verified_speech_report = _verify_rejection_speech_cleanliness(
+                candidate,
+                source_hash,
+                transcript_timing_hash=verified_transcript_manifest[
+                    "transcriptTimingHash"
+                ],
+            )
+        if (
+            expected_profile_tuple == FEED_STOP_V2_REPLAY_PROFILE_TUPLE
+            and require_eligible
+        ):
+            _verify_feed_stop_spoken_clarity(
+                candidate,
+                source_hash,
+                transcript_timing_hash=verified_transcript_manifest[
+                    "transcriptTimingHash"
+                ],
+            )
+        elif expected_profile_tuple == FEED_STOP_V2_REPLAY_PROFILE_TUPLE:
+            _verify_rejection_spoken_clarity(
                 candidate,
                 source_hash,
                 transcript_timing_hash=verified_transcript_manifest[
@@ -227,14 +277,20 @@ def _verify_rejection_speech_cleanliness(
     source_hash: str,
     *,
     transcript_timing_hash: str,
-) -> dict:
-    """Verify feed-stop audio evidence without requiring an eligible result."""
+) -> dict | None:
+    """Verify optional feed-stop audio evidence for a human rejection.
+
+    Historical replay rankings may predate the speech-cleanliness report. A
+    missing report cannot grant production authority and therefore does not
+    invalidate an explicit human-negative event. If a report is present, it
+    remains fully sealed, interval-bound, and fail-closed.
+    """
 
     report = candidate.get("speechCleanlinessReport")
+    if report is None:
+        return None
     if not isinstance(report, dict):
-        raise ArtifactBindingError(
-            "feed-stop candidate lacks a speech-cleanliness report"
-        )
+        raise ArtifactBindingError("feed-stop speech-cleanliness report is invalid")
     verified = verify_speech_cleanliness_report(
         report,
         source_hash=source_hash,
@@ -272,6 +328,73 @@ def _verify_rejection_speech_cleanliness(
     if any(candidate.get(field) != expected for field, expected in aliases.items()):
         raise ArtifactBindingError(
             "speech-cleanliness candidate aliases do not match the sealed report"
+        )
+    return verified
+
+
+def _verify_rejection_spoken_clarity(
+    candidate: dict,
+    source_hash: str,
+    *,
+    transcript_timing_hash: str,
+) -> dict | None:
+    """Verify optional clarity evidence without making it rejection authority."""
+
+    report = candidate.get("spokenClarityReport")
+    if report is None:
+        return None
+    if not isinstance(report, dict):
+        raise ArtifactBindingError("feed-stop spoken-clarity report is invalid")
+    from shorts_generator.spoken_clarity import verify_spoken_clarity_report
+
+    verified = verify_spoken_clarity_report(
+        report,
+        source_hash=source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+        speech_interval=(
+            candidate.get("speech_start_time", candidate.get("start_time")),
+            candidate.get("speech_end_time", candidate.get("end_time")),
+        ),
+        require_pass=False,
+    )
+    counts = verified["counts"]
+    opening_asr = verified["evidence"]["openingAsr"]
+    aliases = {
+        "spokenClarityStatus": verified["status"],
+        "spokenClarityEligible": verified["eligible"],
+        "spokenClarityRejectionReasons": verified["rejectionReasons"],
+        "spokenClarityReviewReasons": verified["reviewReasons"],
+        "spoken_clarity_decision_version": verified["decisionVersion"],
+        "spoken_clarity_status": verified["status"],
+        "spoken_clarity_eligible": verified["eligible"],
+        "spoken_clarity_reject_reasons": verified["rejectionReasons"],
+        "spoken_clarity_review_reasons": verified["reviewReasons"],
+        "spoken_clarity_deterministic_reasons": verified[
+            "deterministicReasons"
+        ],
+        "spoken_clarity_provider_status": verified["providerStatus"],
+        "spoken_clarity_adjacent_duplicate_count": counts[
+            "adjacentDuplicates"
+        ],
+        "spoken_clarity_repeated_phrase_count": counts[
+            "repeatedPhraseRestarts"
+        ],
+        "spoken_clarity_searching_pause_count": counts[
+            "searchingInternalPauses"
+        ],
+        "spoken_clarity_opening_asr_mean_confidence": opening_asr[
+            "meanWordConfidence"
+        ],
+        "spoken_clarity_opening_asr_low_ratio": opening_asr[
+            "lowConfidenceWordRatio"
+        ],
+        "spoken_clarity_opening_asr_token_match_ratio": opening_asr[
+            "tokenMatchRatio"
+        ],
+    }
+    if any(candidate.get(field) != expected for field, expected in aliases.items()):
+        raise ArtifactBindingError(
+            "spoken-clarity candidate aliases do not match the sealed report"
         )
     return verified
 
@@ -471,11 +594,24 @@ def command_approve(args) -> dict:
         raise ValueError(
             "--output must be outside the append-only Autoresearch evidence root"
         )
-    ranking, candidate, source_hash = candidate_from_file(
+    (
+        ranking,
+        candidate,
+        source_hash,
+        replay_transcript_manifest,
+        _,
+    ) = _review_candidate_from_file(
         args.candidate_json,
         args.rank,
         args.source,
+        require_eligible=True,
+        require_replay_transcript=False,
     )
+    if candidate.get("format_profile") == BF_FEED_STOP_FORMAT_V1:
+        raise ArtifactBindingError(
+            "bf_feed_stop_format_v1 is legacy replay-only and cannot create "
+            "a new positive approval; regenerate with bf_feed_stop_format_v2"
+        )
     decision = build_candidate_decision(
         candidate,
         source_hash,
@@ -483,6 +619,16 @@ def command_approve(args) -> dict:
         decided_at=args.decided_at,
         ranking_manifest_hash=ranking["contentHash"],
         notes=args.notes,
+        replay_transcript=(
+            replay_transcript_manifest["transcript"]
+            if replay_transcript_manifest is not None
+            else None
+        ),
+        transcript_timing_hash=(
+            replay_transcript_manifest["transcriptTimingHash"]
+            if replay_transcript_manifest is not None
+            else None
+        ),
     )
     archive_approved_candidate(
         ranking,
@@ -504,6 +650,116 @@ def _rejection_reason_codes(raw_values: list[str]) -> list[str]:
     if not reason_codes:
         raise ValueError("at least one non-empty --reason-code is required")
     return reason_codes
+
+
+PREVIEW_DURATION_TOLERANCE_MS = 100
+
+
+def _nonnegative_milliseconds(value: str) -> int:
+    """Parse an exact CLI millisecond value without a float round-trip."""
+
+    normalized = str(value or "").strip()
+    if not normalized or not normalized.isascii() or not normalized.isdigit():
+        raise argparse.ArgumentTypeError("must be a nonnegative integer in milliseconds")
+    return int(normalized)
+
+
+def _probe_review_media(path: str) -> tuple[int, str]:
+    """Return exact millisecond duration and canonical container for a preview."""
+
+    media_path = Path(path).expanduser()
+    if not media_path.is_file() or media_path.stat().st_size < 1:
+        raise ArtifactBindingError("review preview must be a nonempty file")
+    container = media_path.suffix.lower().lstrip(".")
+    if not container or not container.isalnum():
+        raise ArtifactBindingError(
+            "review preview must have a canonical media container suffix"
+        )
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration,format_name:stream=codec_type",
+                "-of",
+                "json",
+                str(media_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout or "{}")
+        format_metadata = payload.get("format")
+        streams = payload.get("streams")
+        duration = Decimal(str(format_metadata.get("duration")))
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        AttributeError,
+        InvalidOperation,
+    ) as error:
+        raise ArtifactBindingError("review preview metadata is unverifiable") from error
+    stream_types = {
+        str(stream.get("codec_type") or "").strip().lower()
+        for stream in (streams if isinstance(streams, list) else [])
+        if isinstance(stream, dict)
+    }
+    if not {"audio", "video"}.issubset(stream_types):
+        raise ArtifactBindingError("review preview must contain audio and video")
+    if not duration.is_finite() or duration <= 0:
+        raise ArtifactBindingError("review preview duration must be positive")
+    duration_ms = int(
+        (duration * Decimal(1000)).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
+    if duration_ms < 1:
+        raise ArtifactBindingError("review preview duration must be positive")
+    format_names = {
+        item.strip().lower()
+        for item in str(format_metadata.get("format_name") or "").split(",")
+        if item.strip()
+    }
+    if format_names and container not in format_names:
+        # ffprobe calls ISO-BMFF files "mov,mp4,..."; membership therefore
+        # accepts an ordinary .mp4 while still rejecting a misleading suffix.
+        raise ArtifactBindingError(
+            "review preview suffix does not match its media container"
+        )
+    return duration_ms, container
+
+
+def _preview_context_from_file(
+    path: str,
+    source_path: str,
+) -> tuple[dict, dict, Path]:
+    """Verify a ranking/source/transcript context without resolving a candidate."""
+
+    ranking = verify_seal(read_json(path), "RankingManifest")
+    source = ranking.get("source")
+    if not isinstance(source, dict):
+        raise ArtifactBindingError("ranking manifest source is invalid")
+    declared_path_value = str(source.get("local_path") or "").strip()
+    if not declared_path_value:
+        raise ArtifactBindingError("ranking source.local_path is missing")
+    declared_path = Path(declared_path_value).expanduser().resolve()
+    supplied_path = Path(source_path).expanduser().resolve()
+    if declared_path != supplied_path:
+        raise ArtifactBindingError(
+            "ranking source.local_path does not match the supplied source"
+        )
+    source_hash = file_sha256(str(declared_path))
+    if ranking.get("sourceHash") != source_hash:
+        raise ArtifactBindingError(
+            "ranking manifest is not bound to the supplied source"
+        )
+    dataset = build_replay_capture_dataset(ranking)
+    return ranking, dataset, declared_path
 
 
 def _existing_rejection_receipt(path: Path, receipt: dict) -> dict | None:
@@ -552,6 +808,132 @@ def _write_idempotent_rejection_receipt(path: Path, receipt: dict) -> dict:
             return existing
         raise
     return receipt
+
+
+_PREVIEW_RECEIPT_OPERATIONAL_FIELDS = {
+    "datasetCreated",
+    "rejectionCreated",
+    "reviewMediaCreated",
+}
+
+
+def _existing_preview_rejection_receipt(
+    path: Path,
+    receipt: dict,
+) -> dict | None:
+    """Fail before archive mutation when a preview receipt path collides."""
+
+    if not path.exists():
+        return None
+    identity = {
+        key: value
+        for key, value in receipt.items()
+        if key not in _PREVIEW_RECEIPT_OPERATIONAL_FIELDS
+    }
+    existing = read_json(str(path))
+    if (
+        set(existing) != set(receipt)
+        or any(
+            type(existing.get(field)) is not bool
+            for field in _PREVIEW_RECEIPT_OPERATIONAL_FIELDS
+        )
+    ):
+        raise ArtifactBindingError(
+            f"immutable preview rejection receipt collision at {path}"
+        )
+    existing_identity = {
+        key: value
+        for key, value in existing.items()
+        if key not in _PREVIEW_RECEIPT_OPERATIONAL_FIELDS
+    }
+    if existing_identity != identity:
+        raise ArtifactBindingError(
+            f"immutable preview rejection receipt collision at {path}"
+        )
+    return existing
+
+
+def _write_idempotent_preview_rejection_receipt(
+    path: Path,
+    receipt: dict,
+) -> dict:
+    existing = _existing_preview_rejection_receipt(path, receipt)
+    if existing is not None:
+        return existing
+    try:
+        write_immutable_json(path, receipt)
+    except ArtifactBindingError:
+        existing = _existing_preview_rejection_receipt(path, receipt)
+        if existing is not None:
+            return existing
+        raise
+    return receipt
+
+
+def _expected_preview_rejection_receipt(
+    dataset: dict,
+    *,
+    preview_path: Path,
+    preview_duration_ms: int,
+    preview_container: str,
+    interval_start_ms: int,
+    interval_end_ms: int,
+    reviewer: str,
+    decided_at: str,
+    reason_codes: list[str],
+    notes: str,
+    preview_source_provenance_report: dict,
+    evidence_root: Path,
+) -> dict:
+    """Build a pure receipt identity before any durable archive write."""
+
+    media_hash = file_sha256(str(preview_path))
+    media_byte_length = preview_path.stat().st_size
+    rejection = build_replay_human_preview_rejection(
+        dataset,
+        interval_start_ms=interval_start_ms,
+        interval_end_ms=interval_end_ms,
+        review_media_hash=media_hash,
+        review_media_byte_length=media_byte_length,
+        review_media_duration_ms=preview_duration_ms,
+        review_media_container=preview_container,
+        reviewer=reviewer,
+        decided_at=decided_at,
+        reason_codes=reason_codes,
+        preview_source_provenance_report=preview_source_provenance_report,
+        notes=notes,
+    )
+    ranking_hash = dataset["rankingManifestHash"]
+    archived_media = (
+        evidence_root
+        / "review-media"
+        / f"{media_hash}.{preview_container}"
+    )
+    return {
+        "schemaVersion": 1,
+        "artifactType": HUMAN_PREVIEW_REJECTION_RECEIPT_TYPE,
+        "datasetHash": dataset["contentHash"],
+        "rejectionHash": rejection["contentHash"],
+        "reviewMediaHash": media_hash,
+        "previewSourceProvenanceHash": preview_source_provenance_report[
+            "contentHash"
+        ],
+        "datasetPath": str(
+            (evidence_root / "datasets" / f"{ranking_hash}.json").resolve()
+        ),
+        "rejectionPath": str(
+            (
+                evidence_root
+                / "negative-preview-labels"
+                / ranking_hash
+                / f"{rejection['contentHash']}.json"
+            ).resolve()
+        ),
+        "reviewMediaPath": str(archived_media.resolve()),
+        "datasetCreated": False,
+        "rejectionCreated": False,
+        "reviewMediaCreated": False,
+    }
 
 
 def _expected_rejection_receipt(
@@ -648,6 +1030,87 @@ def command_reject(args) -> dict:
         speech_cleanliness_report=speech_report,
     )
     return _write_idempotent_rejection_receipt(receipt_output, receipt)
+
+
+def command_reject_preview(args) -> dict:
+    """Archive the exact source preview the operator rejected."""
+
+    evidence_root = Path(args.evidence_dir).expanduser().resolve()
+    receipt_output = Path(args.output).expanduser().resolve()
+    try:
+        receipt_output.relative_to(evidence_root)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(
+            "--output must be outside the append-only Autoresearch evidence root"
+        )
+    ranking, dataset, source_path = _preview_context_from_file(
+        args.ranking,
+        args.source,
+    )
+    preview_path = Path(args.preview).expanduser().resolve()
+    preview_duration_ms, preview_container = _probe_review_media(
+        str(preview_path)
+    )
+    interval_duration_ms = args.end_ms - args.start_ms
+    if interval_duration_ms < 1:
+        raise ArtifactBindingError(
+            "preview source interval must have positive duration"
+        )
+    if (
+        abs(preview_duration_ms - interval_duration_ms)
+        > PREVIEW_DURATION_TOLERANCE_MS
+    ):
+        raise ArtifactBindingError(
+            "review preview duration does not match the exact source interval"
+        )
+    reason_codes = _rejection_reason_codes(args.reason_code)
+    preview_hash = file_sha256(str(preview_path))
+    preview_source_provenance_report = analyze_preview_source_provenance(
+        str(source_path),
+        str(preview_path),
+        str(dataset["sourceHash"]),
+        preview_hash,
+        args.start_ms,
+        args.end_ms,
+    )
+    expected_receipt = _expected_preview_rejection_receipt(
+        dataset,
+        preview_path=preview_path,
+        preview_duration_ms=preview_duration_ms,
+        preview_container=preview_container,
+        interval_start_ms=args.start_ms,
+        interval_end_ms=args.end_ms,
+        reviewer=args.reviewer,
+        decided_at=args.decided_at,
+        reason_codes=reason_codes,
+        notes=args.notes,
+        preview_source_provenance_report=preview_source_provenance_report,
+        evidence_root=evidence_root,
+    )
+    # Validate an existing operator receipt before dataset/media writes. An
+    # identical retry is safe and still lets the append-only archive verify its
+    # own content-addressed objects.
+    _existing_preview_rejection_receipt(receipt_output, expected_receipt)
+    receipt = archive_rejected_preview(
+        ranking,
+        interval_start_ms=args.start_ms,
+        interval_end_ms=args.end_ms,
+        review_media_path=preview_path,
+        review_media_duration_ms=preview_duration_ms,
+        review_media_container=preview_container,
+        reviewer=args.reviewer,
+        decided_at=args.decided_at,
+        reason_codes=reason_codes,
+        preview_source_provenance_report=preview_source_provenance_report,
+        evidence_dir=evidence_root,
+        notes=args.notes,
+    )
+    return _write_idempotent_preview_rejection_receipt(
+        receipt_output,
+        receipt,
+    )
 
 
 def command_experiment(args) -> dict:
@@ -985,6 +1448,45 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reject.add_argument("--output", required=True)
     reject.set_defaults(handler=command_reject)
+
+    reject_preview = sub.add_parser("reject-preview")
+    reject_preview.add_argument("--ranking", required=True)
+    reject_preview.add_argument("--source", required=True)
+    reject_preview.add_argument("--preview", required=True)
+    reject_preview.add_argument(
+        "--start-ms",
+        type=_nonnegative_milliseconds,
+        required=True,
+        help="Exact source interval start as a nonnegative integer millisecond.",
+    )
+    reject_preview.add_argument(
+        "--end-ms",
+        type=_nonnegative_milliseconds,
+        required=True,
+        help="Exact source interval end as a positive integer millisecond.",
+    )
+    reject_preview.add_argument("--reviewer", required=True)
+    reject_preview.add_argument("--decided-at", required=True)
+    reject_preview.add_argument(
+        "--reason-code",
+        action="append",
+        required=True,
+        help=(
+            "Canonical human rejection code. Repeat the flag or supply a "
+            "comma-separated list."
+        ),
+    )
+    reject_preview.add_argument("--notes", default="")
+    reject_preview.add_argument(
+        "--evidence-dir",
+        default=LOCAL_AUTORESEARCH_EVIDENCE_DIR,
+        help=(
+            "Durable append-only Autoresearch preview-rejection evidence "
+            "root (separate from output and caches)."
+        ),
+    )
+    reject_preview.add_argument("--output", required=True)
+    reject_preview.set_defaults(handler=command_reject_preview)
 
     experiment = sub.add_parser("declare-experiment")
     experiment.add_argument("--candidate-decision", required=True)

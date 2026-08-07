@@ -8,12 +8,15 @@ from shorts_generator.artifact_contracts import (
     build_candidate_decision,
     build_replay_transcript_manifest,
     candidate_hash,
+    transcript_timing_hash,
 )
 from shorts_generator.growth_replay import (
+    _validate_exact_human_label_evidence,
     build_growth_replay_report,
     load_replay_dataset,
     verify_replay_pack,
 )
+from tests.test_artifact_contracts import feed_stop_v3_candidate
 
 
 def _transcript():
@@ -284,6 +287,100 @@ def _write_exact_v2_pack(root):
 
 
 class GrowthReplayTests(unittest.TestCase):
+    def test_v3_exact_label_rebuild_reattaches_hook_gate_report(self):
+        source_hash = "a" * 64
+        ranking_hash = "b" * 64
+        capture_dataset_hash = "3" * 64
+        candidate, replay_transcript = feed_stop_v3_candidate(
+            source_hash=source_hash
+        )
+        replay_timing_hash = transcript_timing_hash(replay_transcript)
+        decision = build_candidate_decision(
+            candidate,
+            source_hash,
+            reviewer="operator_1",
+            decided_at="2026-08-07T12:00:00Z",
+            ranking_manifest_hash=ranking_hash,
+            replay_transcript=replay_transcript,
+            transcript_timing_hash=replay_timing_hash,
+        )
+        capture_label = _seal(
+            {
+                "schemaVersion": 1,
+                "artifactType": "BudgetFriendlyReplayCaptureLabelV2",
+                "labelVersion": "bf-replay-capture-label-v2.0.0",
+                "decision": "approved",
+                "labelSemantics": "explicit_human_approval",
+                "datasetId": ranking_hash,
+                "datasetHash": capture_dataset_hash,
+                "rankingManifestHash": ranking_hash,
+                "sourceHash": source_hash,
+                "candidateHash": candidate["candidate_hash"],
+                "candidateDecisionHash": decision["contentHash"],
+                "candidateDecision": decision,
+                "approvedRank": 1,
+                "reviewer": decision["reviewer"],
+                "decidedAt": decision["decidedAt"],
+                "notes": decision["notes"],
+            }
+        )
+        dataset = {
+            "datasetId": ranking_hash,
+            "captureProvenance": {
+                "captureDatasetHash": capture_dataset_hash,
+                "sourceHash": source_hash,
+                "rankingManifestHash": ranking_hash,
+                "transcriptTimingHash": replay_timing_hash,
+            },
+        }
+
+        def labels_for(positive):
+            return {
+                "labelSemantics": "explicit_human_approval",
+                "labels": [
+                    {
+                        "labelId": _canonical_hash(
+                            [ranking_hash, positive["candidate_hash"], "approved"]
+                        ),
+                        "decision": "approved",
+                        "candidateHash": positive["candidate_hash"],
+                        "candidate": positive,
+                        "matchScore": 1.0,
+                        "matchStatus": "hash_bound",
+                        "provenance": {
+                            "captureDatasetHash": capture_dataset_hash,
+                            "captureLabelHashes": [capture_label["contentHash"]],
+                            "captureLabels": [capture_label],
+                        },
+                    }
+                ],
+            }
+
+        verified = _validate_exact_human_label_evidence(
+            dataset,
+            labels_for(candidate),
+            [candidate],
+            [candidate],
+            transcript=replay_transcript,
+            context="v3-replay",
+        )
+        self.assertEqual(verified, {capture_label["contentHash"]})
+
+        reportless = json.loads(json.dumps(candidate))
+        reportless.pop("hookGateReport")
+        with self.assertRaisesRegex(
+            ValueError,
+            "CandidateDecision binding is invalid",
+        ):
+            _validate_exact_human_label_evidence(
+                dataset,
+                labels_for(reportless),
+                [reportless],
+                [reportless],
+                transcript=replay_transcript,
+                context="v3-reportless-replay",
+            )
+
     def _write_fixture(self, root, candidates):
         artifact = {
             "candidates": candidates,

@@ -11,6 +11,7 @@ from shorts_generator.artifact_contracts import (
     candidate_hash,
     content_hash,
     file_sha256,
+    transcript_timing_hash,
 )
 from shorts_generator.experiment import build_experiment_manifest
 from shorts_generator.local import clipper as clipper_module
@@ -26,19 +27,58 @@ from shorts_generator.production_workflow import (
 from shorts_generator.speech_cleanliness import (
     evaluate_speech_cleanliness_evidence,
 )
+from shorts_generator.spoken_clarity import evaluate_spoken_clarity_evidence
+from shorts_generator.profiles import SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY
+from tests.test_artifact_contracts import feed_stop_v3_candidate
 
 
 class ProductionWorkflowTests(unittest.TestCase):
+    def test_feed_stop_v3_research_label_cannot_authorize_production_render(self):
+        source_hash = "a" * 64
+        candidate, replay_transcript = feed_stop_v3_candidate(
+            source_hash=source_hash
+        )
+        decision = build_candidate_decision(
+            candidate,
+            source_hash,
+            reviewer="operator_1",
+            decided_at="2026-08-07T12:00:00Z",
+            ranking_manifest_hash="d" * 64,
+            replay_transcript=replay_transcript,
+            transcript_timing_hash=transcript_timing_hash(replay_transcript),
+        )
+        experiment = build_experiment_manifest(
+            experiment_id="feed_stop_v3_research_only",
+            cohort_id="concrete_rule",
+            treatment_id="hook_gate_v4",
+            candidate_hash=decision["candidateHash"],
+            hypothesis="V3 remains a replay research label.",
+            primary_variable="hook_family",
+            pillar="boundaries",
+            duration_seconds=16.0,
+            declared_at="2026-08-07T12:05:00Z",
+            decision_due_at="2026-08-14T12:05:00Z",
+        )
+
+        with self.assertRaisesRegex(
+            ArtifactBindingError,
+            "does not authorize the production profile",
+        ):
+            _verify_production_job(decision, experiment)
+
     def test_feed_stop_review_decision_cannot_authorize_production_render(self):
         source_hash = "a" * 64
         candidate_body = {
             "start_time": 0.0,
             "end_time": 12.0,
             "candidate_text": "Approval is a trap choose a standard instead",
+            "hook_sentence": "Boundaries protect your peace.",
+            "final_takeaway_sentence": "Boundaries protect your peace.",
+            "semantic_closure_exact_quote": "Boundaries protect your peace.",
             "content_profile": "motivational_podcast",
             "selection_profile": "bf_feed_stop_v1",
             "render_profile": "bf_editorial_inset_v2",
-            "format_profile": "bf_feed_stop_format_v1",
+            "format_profile": "bf_feed_stop_format_v2",
             "rejected": False,
             "rejection_reasons": [],
             "source_cut_count": 0,
@@ -87,6 +127,64 @@ class ProductionWorkflowTests(unittest.TestCase):
                 ],
                 "speech_cleanliness_prompted_filler_count": report[
                     "promptedFillerCount"
+                ],
+            }
+        )
+        clarity = evaluate_spoken_clarity_evidence(
+            source_hash=source_hash,
+            transcript_timing_hash="b" * 64,
+            speech_start=0.0,
+            speech_end=12.0,
+            reference_words=[
+                {"word": "Boundaries", "start": 0.0, "end": 0.4},
+                {"word": "protect", "start": 0.5, "end": 0.9},
+                {"word": "your", "start": 1.0, "end": 1.2},
+                {"word": "peace.", "start": 1.3, "end": 1.8},
+            ],
+            point_exact_quote="Boundaries protect your peace.",
+            opening_asr_words=[
+                {"word": "Boundaries", "confidence": 0.98},
+                {"word": "protect", "confidence": 0.98},
+                {"word": "your", "confidence": 0.98},
+                {"word": "peace", "confidence": 0.98},
+            ],
+            provider_identity=SPOKEN_CLARITY_TRUSTED_PROVIDER_IDENTITY,
+        )
+        clarity_counts = clarity["counts"]
+        opening_asr = clarity["evidence"]["openingAsr"]
+        candidate_body.update(
+            {
+                "spokenClarityReport": clarity,
+                "spokenClarityStatus": clarity["status"],
+                "spokenClarityEligible": clarity["eligible"],
+                "spokenClarityRejectionReasons": clarity["rejectionReasons"],
+                "spokenClarityReviewReasons": clarity["reviewReasons"],
+                "spoken_clarity_decision_version": clarity["decisionVersion"],
+                "spoken_clarity_status": clarity["status"],
+                "spoken_clarity_eligible": clarity["eligible"],
+                "spoken_clarity_reject_reasons": clarity["rejectionReasons"],
+                "spoken_clarity_review_reasons": clarity["reviewReasons"],
+                "spoken_clarity_deterministic_reasons": clarity[
+                    "deterministicReasons"
+                ],
+                "spoken_clarity_provider_status": clarity["providerStatus"],
+                "spoken_clarity_adjacent_duplicate_count": clarity_counts[
+                    "adjacentDuplicates"
+                ],
+                "spoken_clarity_repeated_phrase_count": clarity_counts[
+                    "repeatedPhraseRestarts"
+                ],
+                "spoken_clarity_searching_pause_count": clarity_counts[
+                    "searchingInternalPauses"
+                ],
+                "spoken_clarity_opening_asr_mean_confidence": opening_asr[
+                    "meanWordConfidence"
+                ],
+                "spoken_clarity_opening_asr_low_ratio": opening_asr[
+                    "lowConfidenceWordRatio"
+                ],
+                "spoken_clarity_opening_asr_token_match_ratio": opening_asr[
+                    "tokenMatchRatio"
                 ],
             }
         )

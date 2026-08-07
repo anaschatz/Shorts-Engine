@@ -9,13 +9,26 @@ Versions:
 ## Decision boundary
 
 HookGate V3 is opt-in. It does not replace or silently fall back to HookGate
-V2. The combined opt-in profile is `bf_feed_stop_format_v1`; it binds the new
-selection policy to the existing `bf_editorial_inset_v2` renderer.
+V2. Its frozen control format is `bf_feed_stop_format_v2`, which binds the
+selection policy to the existing `bf_editorial_inset_v2` renderer and adds the
+fail-closed SpokenClarity gate. Supplying the historical
+`bf_feed_stop_v1` selection policy during generation still resolves to this
+V2 control format.
 
-The gate reads only the existing source-contiguous word timestamps and
+New whole-proposition selection and dynamic-music previews use the separate
+`bf_feed_stop_format_v3` contract documented in
+`docs/hook-gate-v4-dynamic-music.md`. V2 remains immutable for replay and
+controlled comparisons; it is not silently mutated into V4 behavior.
+
+`bf_feed_stop_format_v1` is retained only for exact verification, rejection,
+and replay of historical artifacts. Active generation and `approve-candidate`
+reject V1; there is no production-approval bypass flag.
+
+HookGate itself reads only the existing source-contiguous word timestamps and
 candidate semantic evidence. It makes no transcription, video-decoding, audio
-enhancement, or Real-ESRGAN call. Rendering fields are deliberately excluded
-from the semantic score.
+enhancement, or Real-ESRGAN call. The separate V2 SpokenClarity gate locally
+transcribes only the opening window for confidence and token-alignment
+evidence. Rendering fields remain excluded from the semantic score.
 
 ## Measurements
 

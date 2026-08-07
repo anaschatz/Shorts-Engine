@@ -118,6 +118,35 @@ explicit rejection, the snapshot is contradictory: preflight reports an
 integrity failure and promotion refuses to create a pack. Neither event wins
 by ordering or timestamp.
 
+When the reviewed preview is an exact source interval but is not one of the
+ranking manifest's candidate records, `BudgetFriendlyReplayHumanPreviewRejectionV1`
+preserves that distinction. It binds integer source-interval milliseconds and
+the reviewed media's SHA-256, byte length, duration, and container to the exact
+dataset, ranking, source, and timed transcript. It has no candidate identity
+and explicitly has no production authority. Archival stores the immutable
+content-addressed bytes at `review-media/<mediaHash>.<container>` and its sealed
+event at
+`negative-preview-labels/<rankingManifestHash>/<rejectionHash>.json`.
+New events use rejection contract `v1.1.0` and embed the exact sealed
+`PreviewSourceProvenanceReport`. That report must pass and is independently
+bound to the dataset source hash, reviewed-media hash, and exact integer source
+interval before either the receipt or append-only archive is written. The CLI
+runs the decode analyzer once and passes that same report through receipt
+identity construction and archival. Existing `v1.0.0` events remain verifiable
+and preflight-counted under their original legacy operator-attested semantics;
+they are never rewritten or mistaken for decode-verified `v1.1.0` evidence.
+Identical retries are idempotent; stale bindings, changed bytes, non-canonical
+metadata, extra candidate fields, and path collisions fail closed. This
+preview-only lane is not ingested as a positive or candidate-level negative by
+the current fixture-pack slice. The operator records it with `reject-preview`
+using exact integer `--start-ms` and `--end-ms` values; the command verifies
+the supplied source hash, timed transcript, preview audio/video metadata, and
+the preview-duration/interval match before writing. Preflight re-verifies the
+archived media bytes and reports `negativePreviewArtifactCount`,
+`explicitHumanPreviewRejectionCount`, and `rejectedSourceIntervalCount`
+separately from candidate-level rejection diagnostics. None of these counts is
+an activation-gate input.
+
 Rejections remain a read-only diagnostic lane in this slice. They do not count
 as `approvalEventCount` or `humanPositiveCount`, do not turn engine-selected or
 unlisted candidates into negatives, and do not make a dataset promotable. A
@@ -209,8 +238,36 @@ into this selection score because that would make causal attribution
 impossible.
 
 Speech cleanliness will likewise use a separate future Autoresearch lane. Its
-corpus may use exact human rejection reason codes such as audible backchannels
-and sealed, matching `SpeechCleanlinessReport` evidence, but it must define its
-own immutable contract, evaluator, metrics, and activation thresholds. These
-negative diagnostics are not silently folded into the current
-positive-only semantic-closure objective.
+corpus may use exact human rejection reason codes such as
+`audible_backchannels`, `unintelligible_speech`, and
+`hesitant_or_stuttered_delivery`, plus sealed, matching
+`SpeechCleanlinessReport` evidence, but it must define its own immutable
+contract, evaluator, metrics, and activation thresholds. Hook and point
+clarity remain separately attributable through `unclear_hook` and
+`unclear_point`. These negative diagnostics are not silently folded into the
+current positive-only semantic-closure objective.
+
+### Operational SpokenClarity gate
+
+`bf_feed_stop_format_v2` is the forward production/review format for new
+Budget Friendly candidates. It deliberately reuses the immutable
+`bf_feed_stop_v1` HookGate/closure policy and renderer, while adding one
+format-layer, fail-closed `SpokenClarityReport` requirement. The historical
+`bf_feed_stop_format_v1` contract and its sealed metadata remain unchanged.
+
+The report is bound to the exact source hash, replay-transcript timing hash,
+and half-open speech interval. It requires a conservative two-part early claim,
+an exact point quote aligned to the timed transcript, an opening-to-point topic
+anchor, and fluent delivery without repeated false starts or searching pauses.
+The first two seconds are independently transcribed locally and compared with
+the reference opening using versioned token-Levenshtein alignment; a material
+mismatch is `review/ineligible` even when the ASR confidence is misleadingly
+high. Missing provider/model evidence, an unknown version, a non-trusted local
+provider identity, or any non-pass decision is ineligible. The source audio is
+never rewritten to conceal a stutter or unclear phrase—the engine selects a
+different source-contiguous clip.
+
+This gate is operational quality control, not a new variable in the current
+semantic-closure Autoresearch score. Its human negatives remain separately
+attributable until a dedicated clarity evaluation contract has enough labeled
+positive and negative coverage.

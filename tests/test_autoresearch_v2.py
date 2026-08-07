@@ -28,6 +28,8 @@ from research.historical_replay_integrity_v2 import inspect_historical_replay
 from research.offline_test_runner import ExcludingTestLoader, offline_network_boundary
 from research.runner_v2 import _compare_evidence, _experiment_id, execute
 from shorts_generator.replay_capture import (
+    HUMAN_PREVIEW_REJECTION_ARTIFACT_TYPE,
+    HUMAN_PREVIEW_REJECTION_LEGACY_VERSION,
     HUMAN_REJECTION_ARTIFACT_TYPE,
     LABEL_ARTIFACT_TYPE,
 )
@@ -202,7 +204,36 @@ def capture_rejection_fixture(
     }
 
 
-def write_capture_fixture(capture_dir, dataset, approvals=(), rejections=()):
+def capture_preview_rejection_fixture(
+    dataset,
+    *,
+    content_hash_value="6" * 64,
+    media_hash="7" * 64,
+    start_ms=580920,
+    end_ms=603500,
+):
+    return {
+        "artifactType": HUMAN_PREVIEW_REJECTION_ARTIFACT_TYPE,
+        "rejectionVersion": HUMAN_PREVIEW_REJECTION_LEGACY_VERSION,
+        "datasetHash": dataset["contentHash"],
+        "contentHash": content_hash_value,
+        "sourceIntervalMs": {"startMs": start_ms, "endMs": end_ms},
+        "reviewMedia": {
+            "sha256": media_hash,
+            "byteLength": 13,
+            "durationMs": end_ms - start_ms,
+            "container": "mp4",
+        },
+    }
+
+
+def write_capture_fixture(
+    capture_dir,
+    dataset,
+    approvals=(),
+    rejections=(),
+    preview_rejections=(),
+):
     dataset_dir = capture_dir / "datasets"
     dataset_dir.mkdir(parents=True)
     (dataset_dir / "dataset.json").write_text(
@@ -222,6 +253,23 @@ def write_capture_fixture(capture_dir, dataset, approvals=(), rejections=()):
         (path / f"rejection-{index}.json").write_text(
             json.dumps(rejection),
             encoding="utf-8",
+        )
+    for index, rejection in enumerate(preview_rejections):
+        path = (
+            capture_dir
+            / "negative-preview-labels"
+            / dataset["rankingManifestHash"]
+        )
+        path.mkdir(parents=True, exist_ok=True)
+        (path / f"preview-rejection-{index}.json").write_text(
+            json.dumps(rejection),
+            encoding="utf-8",
+        )
+        media = rejection["reviewMedia"]
+        media_dir = capture_dir / "review-media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        (media_dir / f"{media['sha256']}.{media['container']}").write_bytes(
+            b"preview-bytes"
         )
 
 
@@ -459,6 +507,164 @@ class FixturePackV2Tests(unittest.TestCase):
             report,
             "BudgetFriendlyAutoresearchCaptureReadiness",
         )
+
+    def test_preview_rejection_is_verified_but_never_changes_readiness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            dataset = capture_dataset_fixture()
+            rejection = capture_preview_rejection_fixture(dataset)
+            write_capture_fixture(
+                capture_dir,
+                dataset,
+                preview_rejections=[rejection],
+            )
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_preview_rejection",
+                side_effect=lambda artifact, matching_dataset, **kwargs: artifact,
+            ) as preview_verifier:
+                report = assess_capture_data_readiness(
+                    capture_dir,
+                    contract("unused.json"),
+                )
+
+        preview_verifier.assert_called_once()
+        self.assertEqual(
+            preview_verifier.call_args.args[0]["rejectionVersion"],
+            HUMAN_PREVIEW_REJECTION_LEGACY_VERSION,
+        )
+        self.assertEqual(
+            preview_verifier.call_args.args[1]["contentHash"],
+            dataset["contentHash"],
+        )
+        self.assertEqual(
+            preview_verifier.call_args.kwargs["review_media_path"].name,
+            f"{'7' * 64}.mp4",
+        )
+        self.assertEqual(report["datasetArtifactCount"], 1)
+        self.assertEqual(report["negativeLabelArtifactCount"], 0)
+        self.assertEqual(report["negativePreviewArtifactCount"], 1)
+        self.assertEqual(report["explicitHumanRejectionCount"], 0)
+        self.assertEqual(report["rejectedCandidateCount"], 0)
+        self.assertEqual(report["explicitHumanPreviewRejectionCount"], 1)
+        self.assertEqual(report["rejectedSourceIntervalCount"], 1)
+        self.assertEqual(report["approvalEventCount"], 0)
+        self.assertEqual(report["humanPositiveCount"], 0)
+        self.assertEqual(report["sourceCount"], 0)
+        self.assertEqual(report["candidateCount"], 0)
+        self.assertEqual(report["promotableDatasetCount"], 0)
+        self.assertEqual(report["skippedOrphanDatasetCount"], 1)
+        self.assertFalse(report["replayable"])
+        self.assertFalse(report["activationReady"])
+        verify_local_seal(
+            report,
+            "BudgetFriendlyAutoresearchCaptureReadiness",
+        )
+
+    def test_preview_rejection_diagnostics_do_not_change_positive_metrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            dataset = capture_dataset_fixture()
+            approval = capture_approval_fixture(dataset)
+            rejection = capture_preview_rejection_fixture(dataset)
+            write_capture_fixture(
+                capture_dir,
+                dataset,
+                approvals=[approval],
+                preview_rejections=[rejection],
+            )
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_capture_label",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_preview_rejection",
+                side_effect=lambda artifact, matching_dataset, **kwargs: artifact,
+            ):
+                report = assess_capture_data_readiness(
+                    capture_dir,
+                    contract("unused.json"),
+                )
+
+        self.assertEqual(report["sourceCount"], 1)
+        self.assertEqual(report["candidateCount"], 1)
+        self.assertEqual(report["humanPositiveCount"], 1)
+        self.assertEqual(report["approvalEventCount"], 1)
+        self.assertEqual(report["explicitHumanPreviewRejectionCount"], 1)
+        self.assertEqual(report["rejectedSourceIntervalCount"], 1)
+        self.assertTrue(report["replayable"])
+        self.assertTrue(report["activationReady"])
+
+    def test_preview_rejection_counts_deduplicate_events_and_source_intervals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            dataset = capture_dataset_fixture()
+            first = capture_preview_rejection_fixture(dataset)
+            duplicate = copy.deepcopy(first)
+            repeated_interval = capture_preview_rejection_fixture(
+                dataset,
+                content_hash_value="8" * 64,
+                media_hash="9" * 64,
+            )
+            write_capture_fixture(
+                capture_dir,
+                dataset,
+                preview_rejections=[first, duplicate, repeated_interval],
+            )
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_preview_rejection",
+                side_effect=lambda artifact, matching_dataset, **kwargs: artifact,
+            ):
+                report = assess_capture_data_readiness(
+                    capture_dir,
+                    contract("unused.json"),
+                )
+
+        self.assertEqual(report["negativePreviewArtifactCount"], 3)
+        self.assertEqual(report["explicitHumanPreviewRejectionCount"], 2)
+        self.assertEqual(report["rejectedSourceIntervalCount"], 1)
+        self.assertEqual(report["sourceCount"], 0)
+        self.assertEqual(report["candidateCount"], 0)
+        self.assertEqual(report["humanPositiveCount"], 0)
+        self.assertFalse(report["replayable"])
+        self.assertFalse(report["activationReady"])
+
+    def test_missing_or_tampered_preview_media_fails_preflight_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            dataset = capture_dataset_fixture()
+            rejection = capture_preview_rejection_fixture(dataset)
+            write_capture_fixture(
+                capture_dir,
+                dataset,
+                preview_rejections=[rejection],
+            )
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_preview_rejection",
+                side_effect=ValueError("review media bytes do not match"),
+            ):
+                report = assess_capture_data_readiness(
+                    capture_dir,
+                    contract("unused.json"),
+                )
+
+        self.assertIn("review media bytes do not match", report["integrityError"])
+        self.assertEqual(report["explicitHumanPreviewRejectionCount"], 0)
+        self.assertEqual(report["rejectedSourceIntervalCount"], 0)
+        self.assertEqual(report["humanPositiveCount"], 0)
+        self.assertEqual(report["sourceCount"], 0)
+        self.assertFalse(report["replayable"])
+        self.assertFalse(report["activationReady"])
 
     def test_rejection_diagnostics_deduplicate_events_and_do_not_change_positives(self):
         with tempfile.TemporaryDirectory() as directory:

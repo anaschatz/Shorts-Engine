@@ -1,0 +1,2561 @@
+{
+  "artifactType": "DynamicMusicAutoresearchRun",
+  "autoPromotionAllowed": false,
+  "baselinePlan": {
+    "anchors": {
+      "fallbackReasons": [],
+      "hookEndSeconds": 2.2,
+      "hookSource": "opening_unit_exact_quote",
+      "naturalTailEndSeconds": 17.54,
+      "payoffEndSeconds": 16.808,
+      "payoffSource": "payoff_exact_quote",
+      "payoffStartSeconds": 7.84,
+      "speechEndSeconds": 16.808
+    },
+    "constraints": {
+      "maximumGain": 1.02,
+      "minimumGain": 0.42,
+      "minimumTransitionSeconds": 0.12,
+      "randomEffectsAllowed": false,
+      "soundEffectsAllowed": false,
+      "speechDominant": true,
+      "visualEventsAllowed": false
+    },
+    "durationSeconds": 18.533,
+    "events": [
+      {
+        "curve": "linear",
+        "endGain": 0.66,
+        "endSeconds": 0.35,
+        "startGain": 0.46,
+        "startSeconds": 0.0,
+        "type": "entry"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.66,
+        "endSeconds": 6.46,
+        "startGain": 0.66,
+        "startSeconds": 0.35,
+        "type": "hook_hold"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.82,
+        "endSeconds": 7.66,
+        "startGain": 0.66,
+        "startSeconds": 6.46,
+        "type": "semantic_build"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.52,
+        "endSeconds": 7.96,
+        "startGain": 0.82,
+        "startSeconds": 7.66,
+        "type": "clarity_pocket"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.92,
+        "endSeconds": 8.74,
+        "startGain": 0.52,
+        "startSeconds": 7.96,
+        "type": "stable_emphasis"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.66,
+        "endSeconds": 16.808,
+        "startGain": 0.92,
+        "startSeconds": 8.74,
+        "type": "controlled_release"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.66,
+        "endSeconds": 17.54,
+        "startGain": 0.66,
+        "startSeconds": 16.808,
+        "type": "natural_tail_hold"
+      }
+    ],
+    "musicProfile": "reflective",
+    "planVersion": "bf_dynamic_music_v1.0.0",
+    "schemaVersion": 1
+  },
+  "baselinePlanEvaluation": {
+    "artifactType": "DynamicMusicPlanEvaluation",
+    "autoPromotionAllowed": false,
+    "contentHash": "e22aeb6e76d252f9b7cc9d6091ac0a9998e2ee86989fc186a61a7a77c612bec5",
+    "decisionState": "calibration_not_ready",
+    "eligibleForHumanABPreview": false,
+    "evaluationVersion": "bf-music-plan-evaluation-v1.0.0",
+    "metrics": {
+      "buildLift": 0.16,
+      "clarityPocketDepth": 0.3,
+      "contextBuildCoverage": 0.21978,
+      "dynamicRange": 0.46,
+      "maximumRampRatePerSecond": 1.0,
+      "payoffEmphasisLift": 0.4,
+      "releaseDepth": 0.26,
+      "speechWeightedMeanGain": 0.728993
+    },
+    "offlineOnly": true,
+    "planGuardrailsPass": false,
+    "planHash": "97c4b0678a4d9332224af49842462d28dfaa1344bc7138d1e955b2b40e758f0e",
+    "planVersion": "bf_dynamic_music_v1.0.0",
+    "proxyMetricsOnly": true,
+    "renderBindingGuardrails": [
+      {
+        "actual": null,
+        "category": "binding",
+        "code": "RENDER_EVIDENCE_PRESENT",
+        "expected": "sealed RenderManifestEvidence for the treatment render",
+        "passed": false
+      }
+    ],
+    "renderBindingPass": false,
+    "retentionPrediction": null,
+    "safetyGuardrails": [
+      {
+        "actual": null,
+        "category": "safety",
+        "code": "PLAN_SCHEMA_VALID",
+        "expected": "validate_dynamic_music_plan passes",
+        "passed": true
+      },
+      {
+        "actual": {
+          "maximumGain": 1.02,
+          "minimumGain": 0.42,
+          "minimumTransitionSeconds": 0.12,
+          "randomEffectsAllowed": false,
+          "soundEffectsAllowed": false,
+          "speechDominant": true,
+          "visualEventsAllowed": false
+        },
+        "category": "safety",
+        "code": "NON_GENERATIVE_CONSTRAINTS",
+        "expected": {
+          "randomEffectsAllowed": false,
+          "soundEffectsAllowed": false,
+          "speechDominant": true,
+          "visualEventsAllowed": false
+        },
+        "passed": true
+      },
+      {
+        "actual": {
+          "fallbackReasons": [],
+          "hookSource": "opening_unit_exact_quote",
+          "payoffSource": "payoff_exact_quote"
+        },
+        "category": "semantic_binding",
+        "code": "EXACT_SEMANTIC_ANCHORS",
+        "expected": "exact aligned HookGate V4 opening and payoff; no fallback",
+        "passed": true
+      },
+      {
+        "actual": [
+          "entry",
+          "hook_hold",
+          "semantic_build",
+          "clarity_pocket",
+          "stable_emphasis",
+          "controlled_release",
+          "natural_tail_hold"
+        ],
+        "category": "safety",
+        "code": "EVENT_VOCABULARY_AND_ORDER",
+        "expected": "known one-way semantic phase order",
+        "passed": true
+      },
+      {
+        "actual": 1.0,
+        "category": "speech_protection",
+        "code": "RAMP_RATE_LIMIT",
+        "expected": 1.25,
+        "passed": true
+      },
+      {
+        "actual": 0.728993,
+        "category": "speech_protection",
+        "code": "SPEECH_MEAN_GAIN_LIMIT",
+        "expected": 0.82,
+        "passed": true
+      },
+      {
+        "actual": 0.46,
+        "category": "speech_protection",
+        "code": "ENTRY_RESTRAINT",
+        "expected": 0.55,
+        "passed": true
+      },
+      {
+        "actual": 0.66,
+        "category": "speech_protection",
+        "code": "TAIL_RESTRAINT",
+        "expected": 0.75,
+        "passed": true
+      }
+    ],
+    "schemaVersion": 1,
+    "structureProxyGuardrails": [
+      {
+        "actual": 0.46,
+        "category": "structure_proxy",
+        "code": "BOUNDED_DYNAMIC_RANGE",
+        "expected": [
+          0.24,
+          0.58
+        ],
+        "passed": true
+      },
+      {
+        "actual": 0.16,
+        "category": "structure_proxy",
+        "code": "SEMANTIC_BUILD_LIFT",
+        "expected": 0.12,
+        "passed": true
+      },
+      {
+        "actual": 0.3,
+        "category": "structure_proxy",
+        "code": "CLARITY_POCKET_DEPTH",
+        "expected": 0.18,
+        "passed": true
+      },
+      {
+        "actual": 0.4,
+        "category": "structure_proxy",
+        "code": "PAYOFF_EMPHASIS_LIFT",
+        "expected": 0.25,
+        "passed": true
+      },
+      {
+        "actual": 0.26,
+        "category": "structure_proxy",
+        "code": "CONTROLLED_RELEASE_DEPTH",
+        "expected": 0.15,
+        "passed": true
+      },
+      {
+        "actual": 0.21978,
+        "category": "structure_proxy",
+        "code": "CONTEXT_BUILD_COVERAGE",
+        "expected": 0.65,
+        "passed": false
+      }
+    ],
+    "viewerOutcomeLabel": null
+  },
+  "contentHash": "a13f1bee445d4a1c364d04ad52e7b1cd6109c8cd210577d92755bd67fe03dc0f",
+  "controlPerformanceLabel": null,
+  "controlRole": "observed_render_control_only",
+  "dataReadiness": {
+    "artifactType": "DynamicMusicAutoresearchReadiness",
+    "autoPromotionAllowed": false,
+    "blockers": [
+      "sealed_reference_music_labels_missing",
+      "sealed_v3_treatment_render_evidence_missing",
+      "real_equal_age_outcome_metrics_insufficient"
+    ],
+    "calibrationReady": false,
+    "contentHash": "c000283327022b5553375bbc9bed04584c9553fbeb96ab0d9d38c70582f87fca",
+    "contractVersion": "bf-music-autoresearch-v1.0.0",
+    "decisionState": "calibration_not_ready",
+    "licensedAssetsReady": true,
+    "licensedMusicAssets": [
+      {
+        "byteLength": 3270947,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "assets/music/mixkit-driving-ambition-32.mp3",
+        "pathBounded": true,
+        "ready": true,
+        "role": "licensed_music_driving",
+        "sha256Matches": true
+      },
+      {
+        "byteLength": 4830022,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "assets/music/mixkit-forest-mist-whispers-148.mp3",
+        "pathBounded": true,
+        "ready": true,
+        "role": "licensed_music_reflective",
+        "sha256Matches": true
+      },
+      {
+        "byteLength": 5374954,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "assets/music/mixkit-i-believe-in-us-1030.mp3",
+        "pathBounded": true,
+        "ready": true,
+        "role": "licensed_music_warm",
+        "sha256Matches": true
+      }
+    ],
+    "observedControlBinding": {
+      "artifactType": "ObservedMusicControlBinding",
+      "bindingPass": true,
+      "bindingVersion": "bf-observed-control-binding-v1.0.0",
+      "contentHash": "468b60051a76aba5f3714fb964ba7746392d5b904a93012c3c6bbada4d32cc67",
+      "controlHash": "eedde49b19a7a9a7352ca0354957689852bb8bfc488c9bc7ec8c18cffb69b5de",
+      "gates": [
+        {
+          "actual": {
+            "byteLengthMatches": true,
+            "exists": true,
+            "sha256Matches": true
+          },
+          "category": "control_binding",
+          "code": "CONTROL_UPLOADRECEIPT_FILE_HASH",
+          "expected": "declared exact bytes",
+          "passed": true
+        },
+        {
+          "actual": {
+            "byteLengthMatches": true,
+            "exists": true,
+            "sha256Matches": true
+          },
+          "category": "control_binding",
+          "code": "CONTROL_TARGETEDSELECTION_FILE_HASH",
+          "expected": "declared exact bytes",
+          "passed": true
+        },
+        {
+          "actual": {
+            "byteLengthMatches": true,
+            "exists": true,
+            "sha256Matches": true
+          },
+          "category": "control_binding",
+          "code": "CONTROL_GATEDIAGNOSTICS_FILE_HASH",
+          "expected": "declared exact bytes",
+          "passed": true
+        },
+        {
+          "actual": {
+            "byteLengthMatches": true,
+            "exists": true,
+            "sha256Matches": true
+          },
+          "category": "control_binding",
+          "code": "CONTROL_TAILPATCH_FILE_HASH",
+          "expected": "declared exact bytes",
+          "passed": true
+        },
+        {
+          "actual": {
+            "privacyStatus": "public",
+            "publishedAt": "2026-08-07T19:04:22Z",
+            "remoteVideoId": "V3pd9Yrmi-c",
+            "videoId": "V3pd9Yrmi-c",
+            "videoSha256": "6357e9a10143249ee008f7a6e3b63cd3d953bcacc0a38ee4391a6bf6755e8e6e"
+          },
+          "category": "control_binding",
+          "code": "CONTROL_UPLOAD_IDENTITY",
+          "expected": "exact public upload receipt identity",
+          "passed": true
+        },
+        {
+          "actual": {
+            "candidateHash": "9bf45eb50e2a79f0d39e7921297ba8fec6b9ba2b67c49e8a2b0898dc87c77c7b",
+            "sourceHash": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e",
+            "speechIntervalSeconds": [
+              252.58,
+              269.388
+            ]
+          },
+          "category": "control_binding",
+          "code": "CONTROL_SELECTION_IDENTITY",
+          "expected": "control source/candidate/speech identity",
+          "passed": true
+        },
+        {
+          "actual": {
+            "byteLength": 108955999,
+            "exists": true,
+            "pathPersisted": false,
+            "sha256": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e"
+          },
+          "category": "control_binding",
+          "code": "CONTROL_SOURCE_BYTES",
+          "expected": {
+            "byteLength": 108955999,
+            "sha256": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e"
+          },
+          "passed": true
+        },
+        {
+          "actual": {
+            "reportSealValid": true,
+            "sourceHash": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e",
+            "speechInterval": {
+              "endSeconds": 269.388,
+              "semantics": "half-open",
+              "startSeconds": 252.58
+            },
+            "transcriptTimingHash": "a0dcd8b47dca5c09bc6a4faf0c7b67138f225e07fc99aa5108decd29bda3e243"
+          },
+          "category": "control_binding",
+          "code": "CONTROL_TRANSCRIPT_REPORT_BINDING",
+          "expected": "sealed transcript/source/interval binding",
+          "passed": true
+        },
+        {
+          "actual": {
+            "actualWordCount": 37,
+            "exactMatch": true,
+            "expectedWordCount": 37
+          },
+          "category": "control_binding",
+          "code": "CONTROL_PLANNING_TRANSCRIPT_WORDS",
+          "expected": "planning cues equal sealed report words and timings",
+          "passed": true
+        },
+        {
+          "actual": {
+            "outputSha256": "6357e9a10143249ee008f7a6e3b63cd3d953bcacc0a38ee4391a6bf6755e8e6e",
+            "sourceIntervalSeconds": [
+              252.58,
+              270.12
+            ],
+            "speechEndSeconds": 269.388
+          },
+          "category": "control_binding",
+          "code": "CONTROL_TAIL_RENDER_BINDING",
+          "expected": "final bytes, render interval and speech end match tail patch",
+          "passed": true
+        }
+      ],
+      "machineLocalSourcePathPersisted": false,
+      "schemaVersion": 1,
+      "supportingArtifactInventory": {
+        "gateDiagnostics": {
+          "byteLength": 28784,
+          "byteLengthMatches": true,
+          "exists": true,
+          "path": "output/today-v_HXVf32TGY-v2-tailfix/targeted-gate-diagnostics.json",
+          "pathBounded": true,
+          "ready": true,
+          "role": "sealed_transcript_interval_binding",
+          "sha256Matches": true
+        },
+        "tailPatch": {
+          "byteLength": 1008,
+          "byteLengthMatches": true,
+          "exists": true,
+          "path": "output/today-v_HXVf32TGY-v2-tailfix/render/tail-qa-patch.json",
+          "pathBounded": true,
+          "ready": true,
+          "role": "final_render_interval_binding",
+          "sha256Matches": true
+        },
+        "targetedSelection": {
+          "byteLength": 30813,
+          "byteLengthMatches": true,
+          "exists": true,
+          "path": "output/today-v_HXVf32TGY-v2-tailfix/targeted-selection-result.json",
+          "pathBounded": true,
+          "ready": true,
+          "role": "source_candidate_binding",
+          "sha256Matches": true
+        },
+        "uploadReceipt": {
+          "byteLength": 990,
+          "byteLengthMatches": true,
+          "exists": true,
+          "path": "output/today-v_HXVf32TGY-v2-tailfix/public-upload-receipt.json",
+          "pathBounded": true,
+          "ready": true,
+          "role": "public_upload_receipt",
+          "sha256Matches": true
+        }
+      }
+    },
+    "observedControlFiles": [
+      {
+        "byteLength": 2113702,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "output/today-v_HXVf32TGY-v2-tailfix/render/short_01.mp4",
+        "pathBounded": true,
+        "ready": true,
+        "role": "today_published_observed_control",
+        "sha256Matches": true
+      }
+    ],
+    "observedControlPerformanceLabelAvailable": false,
+    "observedControlReady": true,
+    "realOutcomeEvidence": {
+      "acceptedByTreatment": {
+        "bf_dynamic_music_v1.0.0": 0,
+        "licensed_low_bed_v1": 0
+      },
+      "acceptedRealSnapshotCount": 0,
+      "artifactType": "DynamicMusicOutcomeReadiness",
+      "autoPromotionAllowed": false,
+      "canonicalCohortHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "changedAxes": [
+        "musicTreatment"
+      ],
+      "cohortCountThresholdMet": false,
+      "contentHash": "7cb70ce677c0a652227df6e580d2996747d204b9d2fab528c2f3df30b3cd6cc9",
+      "decisionState": "human_ab_required",
+      "equalAgeGateHours": 168,
+      "experimentId": "bf-dynamic-music-v1-calibration",
+      "experimentRecipeHash": "b2c4575c03eb625775c1c043308919d3aa401143c93d5307e492ae6e77d07e4b",
+      "fixedAxesHash": "3b030891829c4d261f2510ab498245f3b72b6b24e06d96da688a6c1ffac2a1bf",
+      "fixedAxisRenderProofImplemented": false,
+      "fixedAxisRenderProofReady": false,
+      "globalBlockers": [
+        "fixed_axis_render_proof_not_implemented"
+      ],
+      "minimumPerTreatment": 3,
+      "realOutcomeEvidenceReady": false,
+      "rejectedSnapshots": [],
+      "schemaVersion": 1,
+      "winner": null
+    },
+    "referenceLabelReadiness": {
+      "admittedLabelCount": 0,
+      "artifactType": "DynamicMusicReferenceLabelReadiness",
+      "contentHash": "13ee21316170b94bbaeb826b107c52e36ffb05af3e3c2118f2a445aa51d3c6e9",
+      "declaredLabelCount": 0,
+      "labelVersion": "bf-music-reference-label-v1.0.0",
+      "labels": [],
+      "labelsReady": false,
+      "minimumRequired": 3,
+      "schemaVersion": 1
+    },
+    "referenceMediaAvailable": true,
+    "rootPathPersisted": false,
+    "schemaVersion": 1,
+    "sealedReferenceLabelCount": 0,
+    "styleReferenceMedia": [
+      {
+        "byteLength": 365283,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "research/style-references/instagram/DXSDpA-DCV5/audio.m4a",
+        "pathBounded": true,
+        "ready": true,
+        "role": "user_supplied_style_reference_audio",
+        "sha256Matches": true
+      },
+      {
+        "byteLength": 120665,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "research/style-references/instagram/DaR_SpyyB4a/audio.m4a",
+        "pathBounded": true,
+        "ready": true,
+        "role": "user_supplied_style_reference_audio",
+        "sha256Matches": true
+      },
+      {
+        "byteLength": 315915,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "research/style-references/instagram/DaR_SpyyB4a/reference.mp4",
+        "pathBounded": true,
+        "ready": true,
+        "role": "user_supplied_style_reference_video",
+        "sha256Matches": true
+      },
+      {
+        "byteLength": 168834,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "research/style-references/instagram/DZQR9dsNnvn/audio.m4a",
+        "pathBounded": true,
+        "ready": true,
+        "role": "user_supplied_style_reference_audio",
+        "sha256Matches": true
+      },
+      {
+        "byteLength": 290394,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "research/style-references/instagram/DZQR9dsNnvn/reference.mp4",
+        "pathBounded": true,
+        "ready": true,
+        "role": "user_supplied_style_reference_video",
+        "sha256Matches": true
+      },
+      {
+        "byteLength": 862750,
+        "byteLengthMatches": true,
+        "exists": true,
+        "path": "research/style-references/instagram/DYkFjyFty5s/reference.mp4",
+        "pathBounded": true,
+        "ready": true,
+        "role": "user_supplied_style_reference_video",
+        "sha256Matches": true
+      }
+    ],
+    "v3TreatmentRenderBound": false
+  },
+  "downloads": 0,
+  "experimentId": "bf-dynamic-music-v1-calibration",
+  "experimentRecipe": {
+    "artifactType": "DynamicMusicExperimentRecipe",
+    "autoPromotionAllowed": false,
+    "blockers": [
+      "sealed_v3_treatment_render_evidence_missing",
+      "sealed_music_only_pair_equivalence_not_yet_proven",
+      "human_listening_ab_not_yet_recorded",
+      "real_equal_age_outcome_metrics_not_yet_available"
+    ],
+    "changedAxes": [
+      "musicTreatment"
+    ],
+    "contentHash": "b2c4575c03eb625775c1c043308919d3aa401143c93d5307e492ae6e77d07e4b",
+    "control": {
+      "musicTreatment": "licensed_low_bed_v1",
+      "performanceLabel": null,
+      "retentionClaim": null,
+      "role": "observed_render_control_only"
+    },
+    "controlIdentity": {
+      "contentHash": "7d3a1d3c5923d05968b4e49981487721da2c94c2dafea1b16c0aed39865f9298",
+      "renderIntervalSeconds": [
+        252.58,
+        270.12
+      ],
+      "sourceHash": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e",
+      "speechIntervalSeconds": [
+        252.58,
+        269.388
+      ],
+      "transcriptTimingHash": "a0dcd8b47dca5c09bc6a4faf0c7b67138f225e07fc99aa5108decd29bda3e243",
+      "videoId": "V3pd9Yrmi-c",
+      "videoSha256": "6357e9a10143249ee008f7a6e3b63cd3d953bcacc0a38ee4391a6bf6755e8e6e"
+    },
+    "decisionState": "calibration_not_ready",
+    "experimentId": "bf-dynamic-music-v1-calibration",
+    "experimentVersion": "bf-music-only-ab-v1.0.0",
+    "fixedAxes": {
+      "captions": "kinetic_editorial_v1",
+      "enhancement": "realesrgan-x4plus:scale4:reference_blend_0.1",
+      "grade": "high_contrast_grayscale_v1",
+      "layout": "editorial_inset",
+      "musicAsset": "sha256:30232da0b9521ed35e009162bfe7c63d06c9c8e4ca81ea5137ab63a9dc66cd98",
+      "naturalTail": "speaker_to_270.120_then_brand_tail",
+      "sourceAndSpeech": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e:252.580:269.388",
+      "sourceCuts": "authentic_source_cuts_only"
+    },
+    "futureLivePolicy": {
+      "equalAgeGateHours": 168,
+      "minimumPerTreatment": 3,
+      "primaryMetrics": [
+        "stayedToWatchPercent",
+        "averagePercentageViewed"
+      ],
+      "requiredSources": [
+        "studio_csv",
+        "youtube_analytics_api"
+      ],
+      "speechSafetyMetrics": [
+        "audioQaPass",
+        "humanSpeechMaskingFailureCount"
+      ],
+      "winnerSelectionImplemented": false
+    },
+    "humanDecisionRequired": true,
+    "humanListeningRubric": [
+      "speech_is_never_masked",
+      "music_supports_the_complete_hook_proposition",
+      "clarity_pocket_makes_the_payoff_easier_to_follow",
+      "payoff_emphasis_feels_stable_not_shaky_or_pumped",
+      "release_preserves_the_speaker_breath_and_natural_tail"
+    ],
+    "requiredPairProof": {
+      "controlAndTreatmentRenderEvidenceRequired": true,
+      "sameLayoutCaptionsGradeTailEnhancementAndSourceCuts": true,
+      "sameLicensedMusicAssetSha256": true,
+      "sameSourceHash": true,
+      "sameSpeechAndRenderIntervals": true,
+      "sameTranscriptTimingHash": true
+    },
+    "schemaVersion": 1,
+    "treatment": {
+      "musicTreatment": "bf_dynamic_music_v1.0.0",
+      "planGuardrailsPass": true,
+      "planHash": "2f1c387818e824fba79865e1faa66ba9ffa50e94424beeae435a1a8776ce3d30",
+      "renderBindingPass": false
+    }
+  },
+  "finalStatus": "calibration_not_ready",
+  "inputAndCodeBindings": {
+    "contractHash": "1999076051f092a278bb19c22b6bd1caa4917e1b25a6a6c92a4033e2110c9b67",
+    "controlHash": "eedde49b19a7a9a7352ca0354957689852bb8bfc488c9bc7ec8c18cffb69b5de",
+    "dynamicMusicCodeSha256": "e69e5d56e3b48abf753b448343ae86acbcec9c04788b41ac9fe6bcc518dc8f68",
+    "evaluatorCodeSha256": "01d96694130b2e9844f434e0133df2a26dba591a2efee70c757005cf139dc296",
+    "outcomeObservationSetHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "renderEvidenceHash": null
+  },
+  "lifecycle": {
+    "artifactType": "DynamicMusicCalibrationLifecycle",
+    "autoPromotionAllowed": false,
+    "contentHash": "da5c7563d6a11c9eacb6b362ae7ac1a1735191f98aa9783b77a030814b9b2475",
+    "currentStage": "treatment_render_binding",
+    "decisionState": "calibration_not_ready",
+    "humanDecisionRequired": true,
+    "lifecycleVersion": "bf-music-calibration-lifecycle-v1.0.0",
+    "schemaVersion": 1,
+    "stages": [
+      {
+        "passed": true,
+        "stage": "inventory_and_control_binding"
+      },
+      {
+        "passed": true,
+        "stage": "offline_plan_search"
+      },
+      {
+        "passed": false,
+        "stage": "treatment_render_binding"
+      },
+      {
+        "passed": false,
+        "stage": "reference_label_calibration"
+      },
+      {
+        "passed": false,
+        "stage": "human_listening_ab"
+      },
+      {
+        "passed": false,
+        "stage": "real_equal_age_outcomes"
+      },
+      {
+        "passed": false,
+        "stage": "human_promotion_decision"
+      }
+    ],
+    "state": "blocked"
+  },
+  "llmCalls": 0,
+  "networkCalls": 0,
+  "offlineOnly": true,
+  "offlineSearch": {
+    "artifactType": "DynamicMusicOfflineSearch",
+    "autoPromotionAllowed": false,
+    "changedAxes": [
+      "musicTreatment"
+    ],
+    "contentHash": "273fcb259a3078b5810db5ce0adbe7013c4c61a7a0b1637d5156d1f5830fa41a",
+    "humanDecisionRequired": true,
+    "retentionPrediction": null,
+    "schemaVersion": 1,
+    "searchVersion": "bf-music-autoresearch-v1.0.0",
+    "searchedParameter": "contextBuildStartPolicy",
+    "selectedOfflineProxyCandidate": {
+      "parameters": {
+        "contextBuildStartPolicy": "hook_end_plus_seconds",
+        "hookSettleSeconds": 0.08
+      },
+      "plan": {
+        "anchors": {
+          "fallbackReasons": [],
+          "hookEndSeconds": 2.2,
+          "hookSource": "opening_unit_exact_quote",
+          "naturalTailEndSeconds": 17.54,
+          "payoffEndSeconds": 16.808,
+          "payoffSource": "payoff_exact_quote",
+          "payoffStartSeconds": 7.84,
+          "speechEndSeconds": 16.808
+        },
+        "constraints": {
+          "maximumGain": 1.02,
+          "minimumGain": 0.42,
+          "minimumTransitionSeconds": 0.12,
+          "randomEffectsAllowed": false,
+          "soundEffectsAllowed": false,
+          "speechDominant": true,
+          "visualEventsAllowed": false
+        },
+        "durationSeconds": 18.533,
+        "events": [
+          {
+            "curve": "linear",
+            "endGain": 0.66,
+            "endSeconds": 0.35,
+            "startGain": 0.46,
+            "startSeconds": 0.0,
+            "type": "entry"
+          },
+          {
+            "curve": "linear",
+            "endGain": 0.66,
+            "endSeconds": 2.28,
+            "startGain": 0.66,
+            "startSeconds": 0.35,
+            "type": "hook_hold"
+          },
+          {
+            "curve": "linear",
+            "endGain": 0.82,
+            "endSeconds": 7.66,
+            "startGain": 0.66,
+            "startSeconds": 2.28,
+            "type": "semantic_build"
+          },
+          {
+            "curve": "linear",
+            "endGain": 0.52,
+            "endSeconds": 7.96,
+            "startGain": 0.82,
+            "startSeconds": 7.66,
+            "type": "clarity_pocket"
+          },
+          {
+            "curve": "linear",
+            "endGain": 0.92,
+            "endSeconds": 8.74,
+            "startGain": 0.52,
+            "startSeconds": 7.96,
+            "type": "stable_emphasis"
+          },
+          {
+            "curve": "linear",
+            "endGain": 0.66,
+            "endSeconds": 16.808,
+            "startGain": 0.92,
+            "startSeconds": 8.74,
+            "type": "controlled_release"
+          },
+          {
+            "curve": "linear",
+            "endGain": 0.66,
+            "endSeconds": 17.54,
+            "startGain": 0.66,
+            "startSeconds": 16.808,
+            "type": "natural_tail_hold"
+          }
+        ],
+        "musicProfile": "reflective",
+        "planVersion": "bf_dynamic_music_v1.0.0",
+        "schemaVersion": 1
+      },
+      "planEvaluation": {
+        "artifactType": "DynamicMusicPlanEvaluation",
+        "autoPromotionAllowed": false,
+        "contentHash": "f98fc2f0bc53519547e895de34e6b51e9328be5be6bc446ee42a29d2632d4788",
+        "decisionState": "calibration_not_ready",
+        "eligibleForHumanABPreview": false,
+        "evaluationVersion": "bf-music-plan-evaluation-v1.0.0",
+        "metrics": {
+          "buildLift": 0.16,
+          "clarityPocketDepth": 0.3,
+          "contextBuildCoverage": 0.985348,
+          "dynamicRange": 0.46,
+          "maximumRampRatePerSecond": 1.0,
+          "payoffEmphasisLift": 0.4,
+          "releaseDepth": 0.26,
+          "speechWeightedMeanGain": 0.748889
+        },
+        "offlineOnly": true,
+        "planGuardrailsPass": true,
+        "planHash": "2f1c387818e824fba79865e1faa66ba9ffa50e94424beeae435a1a8776ce3d30",
+        "planVersion": "bf_dynamic_music_v1.0.0",
+        "proxyMetricsOnly": true,
+        "renderBindingGuardrails": [
+          {
+            "actual": null,
+            "category": "binding",
+            "code": "RENDER_EVIDENCE_PRESENT",
+            "expected": "sealed RenderManifestEvidence for the treatment render",
+            "passed": false
+          }
+        ],
+        "renderBindingPass": false,
+        "retentionPrediction": null,
+        "safetyGuardrails": [
+          {
+            "actual": null,
+            "category": "safety",
+            "code": "PLAN_SCHEMA_VALID",
+            "expected": "validate_dynamic_music_plan passes",
+            "passed": true
+          },
+          {
+            "actual": {
+              "maximumGain": 1.02,
+              "minimumGain": 0.42,
+              "minimumTransitionSeconds": 0.12,
+              "randomEffectsAllowed": false,
+              "soundEffectsAllowed": false,
+              "speechDominant": true,
+              "visualEventsAllowed": false
+            },
+            "category": "safety",
+            "code": "NON_GENERATIVE_CONSTRAINTS",
+            "expected": {
+              "randomEffectsAllowed": false,
+              "soundEffectsAllowed": false,
+              "speechDominant": true,
+              "visualEventsAllowed": false
+            },
+            "passed": true
+          },
+          {
+            "actual": {
+              "fallbackReasons": [],
+              "hookSource": "opening_unit_exact_quote",
+              "payoffSource": "payoff_exact_quote"
+            },
+            "category": "semantic_binding",
+            "code": "EXACT_SEMANTIC_ANCHORS",
+            "expected": "exact aligned HookGate V4 opening and payoff; no fallback",
+            "passed": true
+          },
+          {
+            "actual": [
+              "entry",
+              "hook_hold",
+              "semantic_build",
+              "clarity_pocket",
+              "stable_emphasis",
+              "controlled_release",
+              "natural_tail_hold"
+            ],
+            "category": "safety",
+            "code": "EVENT_VOCABULARY_AND_ORDER",
+            "expected": "known one-way semantic phase order",
+            "passed": true
+          },
+          {
+            "actual": 1.0,
+            "category": "speech_protection",
+            "code": "RAMP_RATE_LIMIT",
+            "expected": 1.25,
+            "passed": true
+          },
+          {
+            "actual": 0.748889,
+            "category": "speech_protection",
+            "code": "SPEECH_MEAN_GAIN_LIMIT",
+            "expected": 0.82,
+            "passed": true
+          },
+          {
+            "actual": 0.46,
+            "category": "speech_protection",
+            "code": "ENTRY_RESTRAINT",
+            "expected": 0.55,
+            "passed": true
+          },
+          {
+            "actual": 0.66,
+            "category": "speech_protection",
+            "code": "TAIL_RESTRAINT",
+            "expected": 0.75,
+            "passed": true
+          }
+        ],
+        "schemaVersion": 1,
+        "structureProxyGuardrails": [
+          {
+            "actual": 0.46,
+            "category": "structure_proxy",
+            "code": "BOUNDED_DYNAMIC_RANGE",
+            "expected": [
+              0.24,
+              0.58
+            ],
+            "passed": true
+          },
+          {
+            "actual": 0.16,
+            "category": "structure_proxy",
+            "code": "SEMANTIC_BUILD_LIFT",
+            "expected": 0.12,
+            "passed": true
+          },
+          {
+            "actual": 0.3,
+            "category": "structure_proxy",
+            "code": "CLARITY_POCKET_DEPTH",
+            "expected": 0.18,
+            "passed": true
+          },
+          {
+            "actual": 0.4,
+            "category": "structure_proxy",
+            "code": "PAYOFF_EMPHASIS_LIFT",
+            "expected": 0.25,
+            "passed": true
+          },
+          {
+            "actual": 0.26,
+            "category": "structure_proxy",
+            "code": "CONTROLLED_RELEASE_DEPTH",
+            "expected": 0.15,
+            "passed": true
+          },
+          {
+            "actual": 0.985348,
+            "category": "structure_proxy",
+            "code": "CONTEXT_BUILD_COVERAGE",
+            "expected": 0.65,
+            "passed": true
+          }
+        ],
+        "viewerOutcomeLabel": null
+      },
+      "planHash": "2f1c387818e824fba79865e1faa66ba9ffa50e94424beeae435a1a8776ce3d30",
+      "treatmentId": "hook_plus_0.08s"
+    },
+    "selectionMeaning": "plan-safe structure-proxy candidate for a human A/B render; not a viewer-outcome winner",
+    "variantCount": 5,
+    "variants": [
+      {
+        "parameters": {
+          "contextBuildStartPolicy": "production_baseline",
+          "hookSettleSeconds": null
+        },
+        "plan": {
+          "anchors": {
+            "fallbackReasons": [],
+            "hookEndSeconds": 2.2,
+            "hookSource": "opening_unit_exact_quote",
+            "naturalTailEndSeconds": 17.54,
+            "payoffEndSeconds": 16.808,
+            "payoffSource": "payoff_exact_quote",
+            "payoffStartSeconds": 7.84,
+            "speechEndSeconds": 16.808
+          },
+          "constraints": {
+            "maximumGain": 1.02,
+            "minimumGain": 0.42,
+            "minimumTransitionSeconds": 0.12,
+            "randomEffectsAllowed": false,
+            "soundEffectsAllowed": false,
+            "speechDominant": true,
+            "visualEventsAllowed": false
+          },
+          "durationSeconds": 18.533,
+          "events": [
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 0.35,
+              "startGain": 0.46,
+              "startSeconds": 0.0,
+              "type": "entry"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 6.46,
+              "startGain": 0.66,
+              "startSeconds": 0.35,
+              "type": "hook_hold"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.82,
+              "endSeconds": 7.66,
+              "startGain": 0.66,
+              "startSeconds": 6.46,
+              "type": "semantic_build"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.52,
+              "endSeconds": 7.96,
+              "startGain": 0.82,
+              "startSeconds": 7.66,
+              "type": "clarity_pocket"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.92,
+              "endSeconds": 8.74,
+              "startGain": 0.52,
+              "startSeconds": 7.96,
+              "type": "stable_emphasis"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 16.808,
+              "startGain": 0.92,
+              "startSeconds": 8.74,
+              "type": "controlled_release"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 17.54,
+              "startGain": 0.66,
+              "startSeconds": 16.808,
+              "type": "natural_tail_hold"
+            }
+          ],
+          "musicProfile": "reflective",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "schemaVersion": 1
+        },
+        "planEvaluation": {
+          "artifactType": "DynamicMusicPlanEvaluation",
+          "autoPromotionAllowed": false,
+          "contentHash": "e22aeb6e76d252f9b7cc9d6091ac0a9998e2ee86989fc186a61a7a77c612bec5",
+          "decisionState": "calibration_not_ready",
+          "eligibleForHumanABPreview": false,
+          "evaluationVersion": "bf-music-plan-evaluation-v1.0.0",
+          "metrics": {
+            "buildLift": 0.16,
+            "clarityPocketDepth": 0.3,
+            "contextBuildCoverage": 0.21978,
+            "dynamicRange": 0.46,
+            "maximumRampRatePerSecond": 1.0,
+            "payoffEmphasisLift": 0.4,
+            "releaseDepth": 0.26,
+            "speechWeightedMeanGain": 0.728993
+          },
+          "offlineOnly": true,
+          "planGuardrailsPass": false,
+          "planHash": "97c4b0678a4d9332224af49842462d28dfaa1344bc7138d1e955b2b40e758f0e",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "proxyMetricsOnly": true,
+          "renderBindingGuardrails": [
+            {
+              "actual": null,
+              "category": "binding",
+              "code": "RENDER_EVIDENCE_PRESENT",
+              "expected": "sealed RenderManifestEvidence for the treatment render",
+              "passed": false
+            }
+          ],
+          "renderBindingPass": false,
+          "retentionPrediction": null,
+          "safetyGuardrails": [
+            {
+              "actual": null,
+              "category": "safety",
+              "code": "PLAN_SCHEMA_VALID",
+              "expected": "validate_dynamic_music_plan passes",
+              "passed": true
+            },
+            {
+              "actual": {
+                "maximumGain": 1.02,
+                "minimumGain": 0.42,
+                "minimumTransitionSeconds": 0.12,
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "category": "safety",
+              "code": "NON_GENERATIVE_CONSTRAINTS",
+              "expected": {
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "passed": true
+            },
+            {
+              "actual": {
+                "fallbackReasons": [],
+                "hookSource": "opening_unit_exact_quote",
+                "payoffSource": "payoff_exact_quote"
+              },
+              "category": "semantic_binding",
+              "code": "EXACT_SEMANTIC_ANCHORS",
+              "expected": "exact aligned HookGate V4 opening and payoff; no fallback",
+              "passed": true
+            },
+            {
+              "actual": [
+                "entry",
+                "hook_hold",
+                "semantic_build",
+                "clarity_pocket",
+                "stable_emphasis",
+                "controlled_release",
+                "natural_tail_hold"
+              ],
+              "category": "safety",
+              "code": "EVENT_VOCABULARY_AND_ORDER",
+              "expected": "known one-way semantic phase order",
+              "passed": true
+            },
+            {
+              "actual": 1.0,
+              "category": "speech_protection",
+              "code": "RAMP_RATE_LIMIT",
+              "expected": 1.25,
+              "passed": true
+            },
+            {
+              "actual": 0.728993,
+              "category": "speech_protection",
+              "code": "SPEECH_MEAN_GAIN_LIMIT",
+              "expected": 0.82,
+              "passed": true
+            },
+            {
+              "actual": 0.46,
+              "category": "speech_protection",
+              "code": "ENTRY_RESTRAINT",
+              "expected": 0.55,
+              "passed": true
+            },
+            {
+              "actual": 0.66,
+              "category": "speech_protection",
+              "code": "TAIL_RESTRAINT",
+              "expected": 0.75,
+              "passed": true
+            }
+          ],
+          "schemaVersion": 1,
+          "structureProxyGuardrails": [
+            {
+              "actual": 0.46,
+              "category": "structure_proxy",
+              "code": "BOUNDED_DYNAMIC_RANGE",
+              "expected": [
+                0.24,
+                0.58
+              ],
+              "passed": true
+            },
+            {
+              "actual": 0.16,
+              "category": "structure_proxy",
+              "code": "SEMANTIC_BUILD_LIFT",
+              "expected": 0.12,
+              "passed": true
+            },
+            {
+              "actual": 0.3,
+              "category": "structure_proxy",
+              "code": "CLARITY_POCKET_DEPTH",
+              "expected": 0.18,
+              "passed": true
+            },
+            {
+              "actual": 0.4,
+              "category": "structure_proxy",
+              "code": "PAYOFF_EMPHASIS_LIFT",
+              "expected": 0.25,
+              "passed": true
+            },
+            {
+              "actual": 0.26,
+              "category": "structure_proxy",
+              "code": "CONTROLLED_RELEASE_DEPTH",
+              "expected": 0.15,
+              "passed": true
+            },
+            {
+              "actual": 0.21978,
+              "category": "structure_proxy",
+              "code": "CONTEXT_BUILD_COVERAGE",
+              "expected": 0.65,
+              "passed": false
+            }
+          ],
+          "viewerOutcomeLabel": null
+        },
+        "planHash": "97c4b0678a4d9332224af49842462d28dfaa1344bc7138d1e955b2b40e758f0e",
+        "treatmentId": "baseline"
+      },
+      {
+        "parameters": {
+          "contextBuildStartPolicy": "hook_end_plus_seconds",
+          "hookSettleSeconds": 0.08
+        },
+        "plan": {
+          "anchors": {
+            "fallbackReasons": [],
+            "hookEndSeconds": 2.2,
+            "hookSource": "opening_unit_exact_quote",
+            "naturalTailEndSeconds": 17.54,
+            "payoffEndSeconds": 16.808,
+            "payoffSource": "payoff_exact_quote",
+            "payoffStartSeconds": 7.84,
+            "speechEndSeconds": 16.808
+          },
+          "constraints": {
+            "maximumGain": 1.02,
+            "minimumGain": 0.42,
+            "minimumTransitionSeconds": 0.12,
+            "randomEffectsAllowed": false,
+            "soundEffectsAllowed": false,
+            "speechDominant": true,
+            "visualEventsAllowed": false
+          },
+          "durationSeconds": 18.533,
+          "events": [
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 0.35,
+              "startGain": 0.46,
+              "startSeconds": 0.0,
+              "type": "entry"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 2.28,
+              "startGain": 0.66,
+              "startSeconds": 0.35,
+              "type": "hook_hold"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.82,
+              "endSeconds": 7.66,
+              "startGain": 0.66,
+              "startSeconds": 2.28,
+              "type": "semantic_build"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.52,
+              "endSeconds": 7.96,
+              "startGain": 0.82,
+              "startSeconds": 7.66,
+              "type": "clarity_pocket"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.92,
+              "endSeconds": 8.74,
+              "startGain": 0.52,
+              "startSeconds": 7.96,
+              "type": "stable_emphasis"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 16.808,
+              "startGain": 0.92,
+              "startSeconds": 8.74,
+              "type": "controlled_release"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 17.54,
+              "startGain": 0.66,
+              "startSeconds": 16.808,
+              "type": "natural_tail_hold"
+            }
+          ],
+          "musicProfile": "reflective",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "schemaVersion": 1
+        },
+        "planEvaluation": {
+          "artifactType": "DynamicMusicPlanEvaluation",
+          "autoPromotionAllowed": false,
+          "contentHash": "f98fc2f0bc53519547e895de34e6b51e9328be5be6bc446ee42a29d2632d4788",
+          "decisionState": "calibration_not_ready",
+          "eligibleForHumanABPreview": false,
+          "evaluationVersion": "bf-music-plan-evaluation-v1.0.0",
+          "metrics": {
+            "buildLift": 0.16,
+            "clarityPocketDepth": 0.3,
+            "contextBuildCoverage": 0.985348,
+            "dynamicRange": 0.46,
+            "maximumRampRatePerSecond": 1.0,
+            "payoffEmphasisLift": 0.4,
+            "releaseDepth": 0.26,
+            "speechWeightedMeanGain": 0.748889
+          },
+          "offlineOnly": true,
+          "planGuardrailsPass": true,
+          "planHash": "2f1c387818e824fba79865e1faa66ba9ffa50e94424beeae435a1a8776ce3d30",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "proxyMetricsOnly": true,
+          "renderBindingGuardrails": [
+            {
+              "actual": null,
+              "category": "binding",
+              "code": "RENDER_EVIDENCE_PRESENT",
+              "expected": "sealed RenderManifestEvidence for the treatment render",
+              "passed": false
+            }
+          ],
+          "renderBindingPass": false,
+          "retentionPrediction": null,
+          "safetyGuardrails": [
+            {
+              "actual": null,
+              "category": "safety",
+              "code": "PLAN_SCHEMA_VALID",
+              "expected": "validate_dynamic_music_plan passes",
+              "passed": true
+            },
+            {
+              "actual": {
+                "maximumGain": 1.02,
+                "minimumGain": 0.42,
+                "minimumTransitionSeconds": 0.12,
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "category": "safety",
+              "code": "NON_GENERATIVE_CONSTRAINTS",
+              "expected": {
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "passed": true
+            },
+            {
+              "actual": {
+                "fallbackReasons": [],
+                "hookSource": "opening_unit_exact_quote",
+                "payoffSource": "payoff_exact_quote"
+              },
+              "category": "semantic_binding",
+              "code": "EXACT_SEMANTIC_ANCHORS",
+              "expected": "exact aligned HookGate V4 opening and payoff; no fallback",
+              "passed": true
+            },
+            {
+              "actual": [
+                "entry",
+                "hook_hold",
+                "semantic_build",
+                "clarity_pocket",
+                "stable_emphasis",
+                "controlled_release",
+                "natural_tail_hold"
+              ],
+              "category": "safety",
+              "code": "EVENT_VOCABULARY_AND_ORDER",
+              "expected": "known one-way semantic phase order",
+              "passed": true
+            },
+            {
+              "actual": 1.0,
+              "category": "speech_protection",
+              "code": "RAMP_RATE_LIMIT",
+              "expected": 1.25,
+              "passed": true
+            },
+            {
+              "actual": 0.748889,
+              "category": "speech_protection",
+              "code": "SPEECH_MEAN_GAIN_LIMIT",
+              "expected": 0.82,
+              "passed": true
+            },
+            {
+              "actual": 0.46,
+              "category": "speech_protection",
+              "code": "ENTRY_RESTRAINT",
+              "expected": 0.55,
+              "passed": true
+            },
+            {
+              "actual": 0.66,
+              "category": "speech_protection",
+              "code": "TAIL_RESTRAINT",
+              "expected": 0.75,
+              "passed": true
+            }
+          ],
+          "schemaVersion": 1,
+          "structureProxyGuardrails": [
+            {
+              "actual": 0.46,
+              "category": "structure_proxy",
+              "code": "BOUNDED_DYNAMIC_RANGE",
+              "expected": [
+                0.24,
+                0.58
+              ],
+              "passed": true
+            },
+            {
+              "actual": 0.16,
+              "category": "structure_proxy",
+              "code": "SEMANTIC_BUILD_LIFT",
+              "expected": 0.12,
+              "passed": true
+            },
+            {
+              "actual": 0.3,
+              "category": "structure_proxy",
+              "code": "CLARITY_POCKET_DEPTH",
+              "expected": 0.18,
+              "passed": true
+            },
+            {
+              "actual": 0.4,
+              "category": "structure_proxy",
+              "code": "PAYOFF_EMPHASIS_LIFT",
+              "expected": 0.25,
+              "passed": true
+            },
+            {
+              "actual": 0.26,
+              "category": "structure_proxy",
+              "code": "CONTROLLED_RELEASE_DEPTH",
+              "expected": 0.15,
+              "passed": true
+            },
+            {
+              "actual": 0.985348,
+              "category": "structure_proxy",
+              "code": "CONTEXT_BUILD_COVERAGE",
+              "expected": 0.65,
+              "passed": true
+            }
+          ],
+          "viewerOutcomeLabel": null
+        },
+        "planHash": "2f1c387818e824fba79865e1faa66ba9ffa50e94424beeae435a1a8776ce3d30",
+        "treatmentId": "hook_plus_0.08s"
+      },
+      {
+        "parameters": {
+          "contextBuildStartPolicy": "hook_end_plus_seconds",
+          "hookSettleSeconds": 0.2
+        },
+        "plan": {
+          "anchors": {
+            "fallbackReasons": [],
+            "hookEndSeconds": 2.2,
+            "hookSource": "opening_unit_exact_quote",
+            "naturalTailEndSeconds": 17.54,
+            "payoffEndSeconds": 16.808,
+            "payoffSource": "payoff_exact_quote",
+            "payoffStartSeconds": 7.84,
+            "speechEndSeconds": 16.808
+          },
+          "constraints": {
+            "maximumGain": 1.02,
+            "minimumGain": 0.42,
+            "minimumTransitionSeconds": 0.12,
+            "randomEffectsAllowed": false,
+            "soundEffectsAllowed": false,
+            "speechDominant": true,
+            "visualEventsAllowed": false
+          },
+          "durationSeconds": 18.533,
+          "events": [
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 0.35,
+              "startGain": 0.46,
+              "startSeconds": 0.0,
+              "type": "entry"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 2.4,
+              "startGain": 0.66,
+              "startSeconds": 0.35,
+              "type": "hook_hold"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.82,
+              "endSeconds": 7.66,
+              "startGain": 0.66,
+              "startSeconds": 2.4,
+              "type": "semantic_build"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.52,
+              "endSeconds": 7.96,
+              "startGain": 0.82,
+              "startSeconds": 7.66,
+              "type": "clarity_pocket"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.92,
+              "endSeconds": 8.74,
+              "startGain": 0.52,
+              "startSeconds": 7.96,
+              "type": "stable_emphasis"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 16.808,
+              "startGain": 0.92,
+              "startSeconds": 8.74,
+              "type": "controlled_release"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 17.54,
+              "startGain": 0.66,
+              "startSeconds": 16.808,
+              "type": "natural_tail_hold"
+            }
+          ],
+          "musicProfile": "reflective",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "schemaVersion": 1
+        },
+        "planEvaluation": {
+          "artifactType": "DynamicMusicPlanEvaluation",
+          "autoPromotionAllowed": false,
+          "contentHash": "ef48d507cbaefb3cf1ef1bfe8034ae65a4ef0e8df3e786bf847fc3670df1deb5",
+          "decisionState": "calibration_not_ready",
+          "eligibleForHumanABPreview": false,
+          "evaluationVersion": "bf-music-plan-evaluation-v1.0.0",
+          "metrics": {
+            "buildLift": 0.16,
+            "clarityPocketDepth": 0.3,
+            "contextBuildCoverage": 0.96337,
+            "dynamicRange": 0.46,
+            "maximumRampRatePerSecond": 1.0,
+            "payoffEmphasisLift": 0.4,
+            "releaseDepth": 0.26,
+            "speechWeightedMeanGain": 0.748317
+          },
+          "offlineOnly": true,
+          "planGuardrailsPass": true,
+          "planHash": "03fd13c06cb069be91bfbc3501f0cd7effa3a6097df8807f06bf90c59eb880ea",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "proxyMetricsOnly": true,
+          "renderBindingGuardrails": [
+            {
+              "actual": null,
+              "category": "binding",
+              "code": "RENDER_EVIDENCE_PRESENT",
+              "expected": "sealed RenderManifestEvidence for the treatment render",
+              "passed": false
+            }
+          ],
+          "renderBindingPass": false,
+          "retentionPrediction": null,
+          "safetyGuardrails": [
+            {
+              "actual": null,
+              "category": "safety",
+              "code": "PLAN_SCHEMA_VALID",
+              "expected": "validate_dynamic_music_plan passes",
+              "passed": true
+            },
+            {
+              "actual": {
+                "maximumGain": 1.02,
+                "minimumGain": 0.42,
+                "minimumTransitionSeconds": 0.12,
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "category": "safety",
+              "code": "NON_GENERATIVE_CONSTRAINTS",
+              "expected": {
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "passed": true
+            },
+            {
+              "actual": {
+                "fallbackReasons": [],
+                "hookSource": "opening_unit_exact_quote",
+                "payoffSource": "payoff_exact_quote"
+              },
+              "category": "semantic_binding",
+              "code": "EXACT_SEMANTIC_ANCHORS",
+              "expected": "exact aligned HookGate V4 opening and payoff; no fallback",
+              "passed": true
+            },
+            {
+              "actual": [
+                "entry",
+                "hook_hold",
+                "semantic_build",
+                "clarity_pocket",
+                "stable_emphasis",
+                "controlled_release",
+                "natural_tail_hold"
+              ],
+              "category": "safety",
+              "code": "EVENT_VOCABULARY_AND_ORDER",
+              "expected": "known one-way semantic phase order",
+              "passed": true
+            },
+            {
+              "actual": 1.0,
+              "category": "speech_protection",
+              "code": "RAMP_RATE_LIMIT",
+              "expected": 1.25,
+              "passed": true
+            },
+            {
+              "actual": 0.748317,
+              "category": "speech_protection",
+              "code": "SPEECH_MEAN_GAIN_LIMIT",
+              "expected": 0.82,
+              "passed": true
+            },
+            {
+              "actual": 0.46,
+              "category": "speech_protection",
+              "code": "ENTRY_RESTRAINT",
+              "expected": 0.55,
+              "passed": true
+            },
+            {
+              "actual": 0.66,
+              "category": "speech_protection",
+              "code": "TAIL_RESTRAINT",
+              "expected": 0.75,
+              "passed": true
+            }
+          ],
+          "schemaVersion": 1,
+          "structureProxyGuardrails": [
+            {
+              "actual": 0.46,
+              "category": "structure_proxy",
+              "code": "BOUNDED_DYNAMIC_RANGE",
+              "expected": [
+                0.24,
+                0.58
+              ],
+              "passed": true
+            },
+            {
+              "actual": 0.16,
+              "category": "structure_proxy",
+              "code": "SEMANTIC_BUILD_LIFT",
+              "expected": 0.12,
+              "passed": true
+            },
+            {
+              "actual": 0.3,
+              "category": "structure_proxy",
+              "code": "CLARITY_POCKET_DEPTH",
+              "expected": 0.18,
+              "passed": true
+            },
+            {
+              "actual": 0.4,
+              "category": "structure_proxy",
+              "code": "PAYOFF_EMPHASIS_LIFT",
+              "expected": 0.25,
+              "passed": true
+            },
+            {
+              "actual": 0.26,
+              "category": "structure_proxy",
+              "code": "CONTROLLED_RELEASE_DEPTH",
+              "expected": 0.15,
+              "passed": true
+            },
+            {
+              "actual": 0.96337,
+              "category": "structure_proxy",
+              "code": "CONTEXT_BUILD_COVERAGE",
+              "expected": 0.65,
+              "passed": true
+            }
+          ],
+          "viewerOutcomeLabel": null
+        },
+        "planHash": "03fd13c06cb069be91bfbc3501f0cd7effa3a6097df8807f06bf90c59eb880ea",
+        "treatmentId": "hook_plus_0.20s"
+      },
+      {
+        "parameters": {
+          "contextBuildStartPolicy": "hook_end_plus_seconds",
+          "hookSettleSeconds": 0.35
+        },
+        "plan": {
+          "anchors": {
+            "fallbackReasons": [],
+            "hookEndSeconds": 2.2,
+            "hookSource": "opening_unit_exact_quote",
+            "naturalTailEndSeconds": 17.54,
+            "payoffEndSeconds": 16.808,
+            "payoffSource": "payoff_exact_quote",
+            "payoffStartSeconds": 7.84,
+            "speechEndSeconds": 16.808
+          },
+          "constraints": {
+            "maximumGain": 1.02,
+            "minimumGain": 0.42,
+            "minimumTransitionSeconds": 0.12,
+            "randomEffectsAllowed": false,
+            "soundEffectsAllowed": false,
+            "speechDominant": true,
+            "visualEventsAllowed": false
+          },
+          "durationSeconds": 18.533,
+          "events": [
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 0.35,
+              "startGain": 0.46,
+              "startSeconds": 0.0,
+              "type": "entry"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 2.55,
+              "startGain": 0.66,
+              "startSeconds": 0.35,
+              "type": "hook_hold"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.82,
+              "endSeconds": 7.66,
+              "startGain": 0.66,
+              "startSeconds": 2.55,
+              "type": "semantic_build"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.52,
+              "endSeconds": 7.96,
+              "startGain": 0.82,
+              "startSeconds": 7.66,
+              "type": "clarity_pocket"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.92,
+              "endSeconds": 8.74,
+              "startGain": 0.52,
+              "startSeconds": 7.96,
+              "type": "stable_emphasis"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 16.808,
+              "startGain": 0.92,
+              "startSeconds": 8.74,
+              "type": "controlled_release"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 17.54,
+              "startGain": 0.66,
+              "startSeconds": 16.808,
+              "type": "natural_tail_hold"
+            }
+          ],
+          "musicProfile": "reflective",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "schemaVersion": 1
+        },
+        "planEvaluation": {
+          "artifactType": "DynamicMusicPlanEvaluation",
+          "autoPromotionAllowed": false,
+          "contentHash": "a9c6393064b92d2a587840b83bbdf5ff40102af1d486db68a0255c6030a75a0e",
+          "decisionState": "calibration_not_ready",
+          "eligibleForHumanABPreview": false,
+          "evaluationVersion": "bf-music-plan-evaluation-v1.0.0",
+          "metrics": {
+            "buildLift": 0.16,
+            "clarityPocketDepth": 0.3,
+            "contextBuildCoverage": 0.935897,
+            "dynamicRange": 0.46,
+            "maximumRampRatePerSecond": 1.0,
+            "payoffEmphasisLift": 0.4,
+            "releaseDepth": 0.26,
+            "speechWeightedMeanGain": 0.747604
+          },
+          "offlineOnly": true,
+          "planGuardrailsPass": true,
+          "planHash": "9f23ab3d0ca5c43640d4817a72e2ad568963cb200c345b813bbbca1cb874d0ce",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "proxyMetricsOnly": true,
+          "renderBindingGuardrails": [
+            {
+              "actual": null,
+              "category": "binding",
+              "code": "RENDER_EVIDENCE_PRESENT",
+              "expected": "sealed RenderManifestEvidence for the treatment render",
+              "passed": false
+            }
+          ],
+          "renderBindingPass": false,
+          "retentionPrediction": null,
+          "safetyGuardrails": [
+            {
+              "actual": null,
+              "category": "safety",
+              "code": "PLAN_SCHEMA_VALID",
+              "expected": "validate_dynamic_music_plan passes",
+              "passed": true
+            },
+            {
+              "actual": {
+                "maximumGain": 1.02,
+                "minimumGain": 0.42,
+                "minimumTransitionSeconds": 0.12,
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "category": "safety",
+              "code": "NON_GENERATIVE_CONSTRAINTS",
+              "expected": {
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "passed": true
+            },
+            {
+              "actual": {
+                "fallbackReasons": [],
+                "hookSource": "opening_unit_exact_quote",
+                "payoffSource": "payoff_exact_quote"
+              },
+              "category": "semantic_binding",
+              "code": "EXACT_SEMANTIC_ANCHORS",
+              "expected": "exact aligned HookGate V4 opening and payoff; no fallback",
+              "passed": true
+            },
+            {
+              "actual": [
+                "entry",
+                "hook_hold",
+                "semantic_build",
+                "clarity_pocket",
+                "stable_emphasis",
+                "controlled_release",
+                "natural_tail_hold"
+              ],
+              "category": "safety",
+              "code": "EVENT_VOCABULARY_AND_ORDER",
+              "expected": "known one-way semantic phase order",
+              "passed": true
+            },
+            {
+              "actual": 1.0,
+              "category": "speech_protection",
+              "code": "RAMP_RATE_LIMIT",
+              "expected": 1.25,
+              "passed": true
+            },
+            {
+              "actual": 0.747604,
+              "category": "speech_protection",
+              "code": "SPEECH_MEAN_GAIN_LIMIT",
+              "expected": 0.82,
+              "passed": true
+            },
+            {
+              "actual": 0.46,
+              "category": "speech_protection",
+              "code": "ENTRY_RESTRAINT",
+              "expected": 0.55,
+              "passed": true
+            },
+            {
+              "actual": 0.66,
+              "category": "speech_protection",
+              "code": "TAIL_RESTRAINT",
+              "expected": 0.75,
+              "passed": true
+            }
+          ],
+          "schemaVersion": 1,
+          "structureProxyGuardrails": [
+            {
+              "actual": 0.46,
+              "category": "structure_proxy",
+              "code": "BOUNDED_DYNAMIC_RANGE",
+              "expected": [
+                0.24,
+                0.58
+              ],
+              "passed": true
+            },
+            {
+              "actual": 0.16,
+              "category": "structure_proxy",
+              "code": "SEMANTIC_BUILD_LIFT",
+              "expected": 0.12,
+              "passed": true
+            },
+            {
+              "actual": 0.3,
+              "category": "structure_proxy",
+              "code": "CLARITY_POCKET_DEPTH",
+              "expected": 0.18,
+              "passed": true
+            },
+            {
+              "actual": 0.4,
+              "category": "structure_proxy",
+              "code": "PAYOFF_EMPHASIS_LIFT",
+              "expected": 0.25,
+              "passed": true
+            },
+            {
+              "actual": 0.26,
+              "category": "structure_proxy",
+              "code": "CONTROLLED_RELEASE_DEPTH",
+              "expected": 0.15,
+              "passed": true
+            },
+            {
+              "actual": 0.935897,
+              "category": "structure_proxy",
+              "code": "CONTEXT_BUILD_COVERAGE",
+              "expected": 0.65,
+              "passed": true
+            }
+          ],
+          "viewerOutcomeLabel": null
+        },
+        "planHash": "9f23ab3d0ca5c43640d4817a72e2ad568963cb200c345b813bbbca1cb874d0ce",
+        "treatmentId": "hook_plus_0.35s"
+      },
+      {
+        "parameters": {
+          "contextBuildStartPolicy": "hook_end_plus_seconds",
+          "hookSettleSeconds": 0.5
+        },
+        "plan": {
+          "anchors": {
+            "fallbackReasons": [],
+            "hookEndSeconds": 2.2,
+            "hookSource": "opening_unit_exact_quote",
+            "naturalTailEndSeconds": 17.54,
+            "payoffEndSeconds": 16.808,
+            "payoffSource": "payoff_exact_quote",
+            "payoffStartSeconds": 7.84,
+            "speechEndSeconds": 16.808
+          },
+          "constraints": {
+            "maximumGain": 1.02,
+            "minimumGain": 0.42,
+            "minimumTransitionSeconds": 0.12,
+            "randomEffectsAllowed": false,
+            "soundEffectsAllowed": false,
+            "speechDominant": true,
+            "visualEventsAllowed": false
+          },
+          "durationSeconds": 18.533,
+          "events": [
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 0.35,
+              "startGain": 0.46,
+              "startSeconds": 0.0,
+              "type": "entry"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 2.7,
+              "startGain": 0.66,
+              "startSeconds": 0.35,
+              "type": "hook_hold"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.82,
+              "endSeconds": 7.66,
+              "startGain": 0.66,
+              "startSeconds": 2.7,
+              "type": "semantic_build"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.52,
+              "endSeconds": 7.96,
+              "startGain": 0.82,
+              "startSeconds": 7.66,
+              "type": "clarity_pocket"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.92,
+              "endSeconds": 8.74,
+              "startGain": 0.52,
+              "startSeconds": 7.96,
+              "type": "stable_emphasis"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 16.808,
+              "startGain": 0.92,
+              "startSeconds": 8.74,
+              "type": "controlled_release"
+            },
+            {
+              "curve": "linear",
+              "endGain": 0.66,
+              "endSeconds": 17.54,
+              "startGain": 0.66,
+              "startSeconds": 16.808,
+              "type": "natural_tail_hold"
+            }
+          ],
+          "musicProfile": "reflective",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "schemaVersion": 1
+        },
+        "planEvaluation": {
+          "artifactType": "DynamicMusicPlanEvaluation",
+          "autoPromotionAllowed": false,
+          "contentHash": "d9723e984ba6c7dd583aa10ec7e4c7aa0d0bba65af9c0d67a627972abe40f1dc",
+          "decisionState": "calibration_not_ready",
+          "eligibleForHumanABPreview": false,
+          "evaluationVersion": "bf-music-plan-evaluation-v1.0.0",
+          "metrics": {
+            "buildLift": 0.16,
+            "clarityPocketDepth": 0.3,
+            "contextBuildCoverage": 0.908425,
+            "dynamicRange": 0.46,
+            "maximumRampRatePerSecond": 1.0,
+            "payoffEmphasisLift": 0.4,
+            "releaseDepth": 0.26,
+            "speechWeightedMeanGain": 0.74689
+          },
+          "offlineOnly": true,
+          "planGuardrailsPass": true,
+          "planHash": "49f170ef30d50bcd6ee78dac5d9ff555bce8743ece0b767de0fbde942fcac6f3",
+          "planVersion": "bf_dynamic_music_v1.0.0",
+          "proxyMetricsOnly": true,
+          "renderBindingGuardrails": [
+            {
+              "actual": null,
+              "category": "binding",
+              "code": "RENDER_EVIDENCE_PRESENT",
+              "expected": "sealed RenderManifestEvidence for the treatment render",
+              "passed": false
+            }
+          ],
+          "renderBindingPass": false,
+          "retentionPrediction": null,
+          "safetyGuardrails": [
+            {
+              "actual": null,
+              "category": "safety",
+              "code": "PLAN_SCHEMA_VALID",
+              "expected": "validate_dynamic_music_plan passes",
+              "passed": true
+            },
+            {
+              "actual": {
+                "maximumGain": 1.02,
+                "minimumGain": 0.42,
+                "minimumTransitionSeconds": 0.12,
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "category": "safety",
+              "code": "NON_GENERATIVE_CONSTRAINTS",
+              "expected": {
+                "randomEffectsAllowed": false,
+                "soundEffectsAllowed": false,
+                "speechDominant": true,
+                "visualEventsAllowed": false
+              },
+              "passed": true
+            },
+            {
+              "actual": {
+                "fallbackReasons": [],
+                "hookSource": "opening_unit_exact_quote",
+                "payoffSource": "payoff_exact_quote"
+              },
+              "category": "semantic_binding",
+              "code": "EXACT_SEMANTIC_ANCHORS",
+              "expected": "exact aligned HookGate V4 opening and payoff; no fallback",
+              "passed": true
+            },
+            {
+              "actual": [
+                "entry",
+                "hook_hold",
+                "semantic_build",
+                "clarity_pocket",
+                "stable_emphasis",
+                "controlled_release",
+                "natural_tail_hold"
+              ],
+              "category": "safety",
+              "code": "EVENT_VOCABULARY_AND_ORDER",
+              "expected": "known one-way semantic phase order",
+              "passed": true
+            },
+            {
+              "actual": 1.0,
+              "category": "speech_protection",
+              "code": "RAMP_RATE_LIMIT",
+              "expected": 1.25,
+              "passed": true
+            },
+            {
+              "actual": 0.74689,
+              "category": "speech_protection",
+              "code": "SPEECH_MEAN_GAIN_LIMIT",
+              "expected": 0.82,
+              "passed": true
+            },
+            {
+              "actual": 0.46,
+              "category": "speech_protection",
+              "code": "ENTRY_RESTRAINT",
+              "expected": 0.55,
+              "passed": true
+            },
+            {
+              "actual": 0.66,
+              "category": "speech_protection",
+              "code": "TAIL_RESTRAINT",
+              "expected": 0.75,
+              "passed": true
+            }
+          ],
+          "schemaVersion": 1,
+          "structureProxyGuardrails": [
+            {
+              "actual": 0.46,
+              "category": "structure_proxy",
+              "code": "BOUNDED_DYNAMIC_RANGE",
+              "expected": [
+                0.24,
+                0.58
+              ],
+              "passed": true
+            },
+            {
+              "actual": 0.16,
+              "category": "structure_proxy",
+              "code": "SEMANTIC_BUILD_LIFT",
+              "expected": 0.12,
+              "passed": true
+            },
+            {
+              "actual": 0.3,
+              "category": "structure_proxy",
+              "code": "CLARITY_POCKET_DEPTH",
+              "expected": 0.18,
+              "passed": true
+            },
+            {
+              "actual": 0.4,
+              "category": "structure_proxy",
+              "code": "PAYOFF_EMPHASIS_LIFT",
+              "expected": 0.25,
+              "passed": true
+            },
+            {
+              "actual": 0.26,
+              "category": "structure_proxy",
+              "code": "CONTROLLED_RELEASE_DEPTH",
+              "expected": 0.15,
+              "passed": true
+            },
+            {
+              "actual": 0.908425,
+              "category": "structure_proxy",
+              "code": "CONTEXT_BUILD_COVERAGE",
+              "expected": 0.65,
+              "passed": true
+            }
+          ],
+          "viewerOutcomeLabel": null
+        },
+        "planHash": "49f170ef30d50bcd6ee78dac5d9ff555bce8743ece0b767de0fbde942fcac6f3",
+        "treatmentId": "hook_plus_0.50s"
+      }
+    ],
+    "winner": null
+  },
+  "planDeterministic": true,
+  "proposedTreatmentPlan": {
+    "anchors": {
+      "fallbackReasons": [],
+      "hookEndSeconds": 2.2,
+      "hookSource": "opening_unit_exact_quote",
+      "naturalTailEndSeconds": 17.54,
+      "payoffEndSeconds": 16.808,
+      "payoffSource": "payoff_exact_quote",
+      "payoffStartSeconds": 7.84,
+      "speechEndSeconds": 16.808
+    },
+    "constraints": {
+      "maximumGain": 1.02,
+      "minimumGain": 0.42,
+      "minimumTransitionSeconds": 0.12,
+      "randomEffectsAllowed": false,
+      "soundEffectsAllowed": false,
+      "speechDominant": true,
+      "visualEventsAllowed": false
+    },
+    "durationSeconds": 18.533,
+    "events": [
+      {
+        "curve": "linear",
+        "endGain": 0.66,
+        "endSeconds": 0.35,
+        "startGain": 0.46,
+        "startSeconds": 0.0,
+        "type": "entry"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.66,
+        "endSeconds": 2.28,
+        "startGain": 0.66,
+        "startSeconds": 0.35,
+        "type": "hook_hold"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.82,
+        "endSeconds": 7.66,
+        "startGain": 0.66,
+        "startSeconds": 2.28,
+        "type": "semantic_build"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.52,
+        "endSeconds": 7.96,
+        "startGain": 0.82,
+        "startSeconds": 7.66,
+        "type": "clarity_pocket"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.92,
+        "endSeconds": 8.74,
+        "startGain": 0.52,
+        "startSeconds": 7.96,
+        "type": "stable_emphasis"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.66,
+        "endSeconds": 16.808,
+        "startGain": 0.92,
+        "startSeconds": 8.74,
+        "type": "controlled_release"
+      },
+      {
+        "curve": "linear",
+        "endGain": 0.66,
+        "endSeconds": 17.54,
+        "startGain": 0.66,
+        "startSeconds": 16.808,
+        "type": "natural_tail_hold"
+      }
+    ],
+    "musicProfile": "reflective",
+    "planVersion": "bf_dynamic_music_v1.0.0",
+    "schemaVersion": 1
+  },
+  "proposedTreatmentPlanEvaluation": {
+    "artifactType": "DynamicMusicPlanEvaluation",
+    "autoPromotionAllowed": false,
+    "contentHash": "f98fc2f0bc53519547e895de34e6b51e9328be5be6bc446ee42a29d2632d4788",
+    "decisionState": "calibration_not_ready",
+    "eligibleForHumanABPreview": false,
+    "evaluationVersion": "bf-music-plan-evaluation-v1.0.0",
+    "metrics": {
+      "buildLift": 0.16,
+      "clarityPocketDepth": 0.3,
+      "contextBuildCoverage": 0.985348,
+      "dynamicRange": 0.46,
+      "maximumRampRatePerSecond": 1.0,
+      "payoffEmphasisLift": 0.4,
+      "releaseDepth": 0.26,
+      "speechWeightedMeanGain": 0.748889
+    },
+    "offlineOnly": true,
+    "planGuardrailsPass": true,
+    "planHash": "2f1c387818e824fba79865e1faa66ba9ffa50e94424beeae435a1a8776ce3d30",
+    "planVersion": "bf_dynamic_music_v1.0.0",
+    "proxyMetricsOnly": true,
+    "renderBindingGuardrails": [
+      {
+        "actual": null,
+        "category": "binding",
+        "code": "RENDER_EVIDENCE_PRESENT",
+        "expected": "sealed RenderManifestEvidence for the treatment render",
+        "passed": false
+      }
+    ],
+    "renderBindingPass": false,
+    "retentionPrediction": null,
+    "safetyGuardrails": [
+      {
+        "actual": null,
+        "category": "safety",
+        "code": "PLAN_SCHEMA_VALID",
+        "expected": "validate_dynamic_music_plan passes",
+        "passed": true
+      },
+      {
+        "actual": {
+          "maximumGain": 1.02,
+          "minimumGain": 0.42,
+          "minimumTransitionSeconds": 0.12,
+          "randomEffectsAllowed": false,
+          "soundEffectsAllowed": false,
+          "speechDominant": true,
+          "visualEventsAllowed": false
+        },
+        "category": "safety",
+        "code": "NON_GENERATIVE_CONSTRAINTS",
+        "expected": {
+          "randomEffectsAllowed": false,
+          "soundEffectsAllowed": false,
+          "speechDominant": true,
+          "visualEventsAllowed": false
+        },
+        "passed": true
+      },
+      {
+        "actual": {
+          "fallbackReasons": [],
+          "hookSource": "opening_unit_exact_quote",
+          "payoffSource": "payoff_exact_quote"
+        },
+        "category": "semantic_binding",
+        "code": "EXACT_SEMANTIC_ANCHORS",
+        "expected": "exact aligned HookGate V4 opening and payoff; no fallback",
+        "passed": true
+      },
+      {
+        "actual": [
+          "entry",
+          "hook_hold",
+          "semantic_build",
+          "clarity_pocket",
+          "stable_emphasis",
+          "controlled_release",
+          "natural_tail_hold"
+        ],
+        "category": "safety",
+        "code": "EVENT_VOCABULARY_AND_ORDER",
+        "expected": "known one-way semantic phase order",
+        "passed": true
+      },
+      {
+        "actual": 1.0,
+        "category": "speech_protection",
+        "code": "RAMP_RATE_LIMIT",
+        "expected": 1.25,
+        "passed": true
+      },
+      {
+        "actual": 0.748889,
+        "category": "speech_protection",
+        "code": "SPEECH_MEAN_GAIN_LIMIT",
+        "expected": 0.82,
+        "passed": true
+      },
+      {
+        "actual": 0.46,
+        "category": "speech_protection",
+        "code": "ENTRY_RESTRAINT",
+        "expected": 0.55,
+        "passed": true
+      },
+      {
+        "actual": 0.66,
+        "category": "speech_protection",
+        "code": "TAIL_RESTRAINT",
+        "expected": 0.75,
+        "passed": true
+      }
+    ],
+    "schemaVersion": 1,
+    "structureProxyGuardrails": [
+      {
+        "actual": 0.46,
+        "category": "structure_proxy",
+        "code": "BOUNDED_DYNAMIC_RANGE",
+        "expected": [
+          0.24,
+          0.58
+        ],
+        "passed": true
+      },
+      {
+        "actual": 0.16,
+        "category": "structure_proxy",
+        "code": "SEMANTIC_BUILD_LIFT",
+        "expected": 0.12,
+        "passed": true
+      },
+      {
+        "actual": 0.3,
+        "category": "structure_proxy",
+        "code": "CLARITY_POCKET_DEPTH",
+        "expected": 0.18,
+        "passed": true
+      },
+      {
+        "actual": 0.4,
+        "category": "structure_proxy",
+        "code": "PAYOFF_EMPHASIS_LIFT",
+        "expected": 0.25,
+        "passed": true
+      },
+      {
+        "actual": 0.26,
+        "category": "structure_proxy",
+        "code": "CONTROLLED_RELEASE_DEPTH",
+        "expected": 0.15,
+        "passed": true
+      },
+      {
+        "actual": 0.985348,
+        "category": "structure_proxy",
+        "code": "CONTEXT_BUILD_COVERAGE",
+        "expected": 0.65,
+        "passed": true
+      }
+    ],
+    "viewerOutcomeLabel": null
+  },
+  "renders": 0,
+  "runVersion": "bf-music-autoresearch-v1.0.0",
+  "schemaVersion": 1,
+  "uploads": 0
+}

@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "BudgetFriendlyHookV4AutoresearchContract",
+  "contractVersion": "bf-hook-v4-autoresearch-v1.1.0",
+  "evaluatorVersion": "bf-hook-v4-evaluation-v1.1.0",
+  "experimentId": "bf-hook-gate-v4-policy-autoresearch-v1",
+  "evaluationLane": "hook_gate_v4",
+  "corpusManifest": "research/fixtures/bf-hook-v4-replay/manifest.json",
+  "dataReadinessGates": {
+    "minimumDistinctSources": 5,
+    "minimumFormalPositiveLabels": 12,
+    "minimumFormalHookNegativeLabels": 6,
+    "minimumEvaluationPositiveLabels": 4,
+    "minimumEvaluationHookNegativeLabels": 3,
+    "minimumExactLabelBindingCoverage": 1.0,
+    "minimumHookV4SemanticEvidenceCoverage": 1.0,
+    "requireSourceDisjointSplits": true
+  },
+  "keepRules": {
+    "maximumEvaluationLabelRegressions": 0,
+    "maximumStrictHookControlRegressions": 0,
+    "maximumBoundaryEvidenceFailures": 0,
+    "maximumReviewDispositionIncrease": 0,
+    "minimumAdditionalCorrectEvaluationLabels": 1
+  },
+  "strictNegativeControls": [
+    {
+      "evidenceHash": "b412f07432568080e5d796daea6408b45add22b911feee9998f8e5fab5d7e361",
+      "artifactType": "BudgetFriendlyReplayHumanRejectionV1",
+      "reasonCodes": [
+        "audible_backchannels"
+      ],
+      "axisOwner": "speech_cleanliness",
+      "expectedPipelineDisposition": "reject",
+      "hookCalibrationEligible": false
+    },
+    {
+      "evidenceHash": "8435ad6557b6ecd51e80c03a8e08031baca9afad5e073d820e8965c6a8b4d64b",
+      "artifactType": "BudgetFriendlyReplayHumanPreviewRejectionV1",
+      "reasonCodes": [
+        "unclear_hook",
+        "unclear_point"
+      ],
+      "axisOwner": "hook_gate_v4",
+      "expectedPipelineDisposition": "reject",
+      "hookCalibrationEligible": true
+    },
+    {
+      "evidenceHash": "c8606eee404f6ec4da9119f2457b8ae68bc0689e3ad9ec1dce6839be27b2e6ac",
+      "artifactType": "BudgetFriendlyReplayHumanPreviewRejectionV1",
+      "reasonCodes": [
+        "unclear_hook",
+        "unintelligible_speech"
+      ],
+      "axisOwner": "hook_gate_v4_and_spoken_clarity",
+      "expectedPipelineDisposition": "reject",
+      "hookCalibrationEligible": true
+    }
+  ],
+  "observedPositiveControls": [
+    {
+      "controlId": "public-v3pd9yrmi-c",
+      "labelSemantics": "observed_manual_approval_non_scoring",
+      "formalLabel": false,
+      "activationEligible": false,
+      "sourceHash": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e",
+      "candidateHash": "718533fe26bd88da7a94127d9b2348085d7fae2823924b94e0f9c23031551f0a",
+      "sourceIntervalMs": {
+        "startMs": 252580,
+        "endMs": 269388
+      },
+      "uploadVideoId": "V3pd9Yrmi-c",
+      "uploadSha256": "6357e9a10143249ee008f7a6e3b63cd3d953bcacc0a38ee4391a6bf6755e8e6e"
+    }
+  ],
+  "editableScope": [
+    "shorts_generator/hook_gate_v4.py"
+  ],
+  "protectedScope": [
+    "research/hook-v4-autoresearch-contract.json",
+    "research/hook_v4_autoresearch.py",
+    "research/runner_hook_v4.py",
+    "research/hook-v4-autoresearch/preflight.json",
+    "research/hook-v4-autoresearch/baseline-attempt.json",
+    "research/fixtures/bf-hook-v4-replay/manifest.json",
+    "tests/test_hook_v4_autoresearch.py",
+    "shorts_generator/hook_gate_v4_report.py",
+    "shorts_generator/artifact_contracts.py",
+    "shorts_generator/delivery_quality.py",
+    "shorts_generator/dynamic_music.py",
+    "shorts_generator/highlights.py",
+    "shorts_generator/local/llm.py",
+    "shorts_generator/pipeline.py",
+    "shorts_generator/profiles.py",
+    "shorts_generator/ranker.py",
+    "shorts_generator/replay_capture.py",
+    "shorts_generator/speech_cleanliness.py",
+    "shorts_generator/local/speech_cleanliness.py",
+    "shorts_generator/spoken_clarity.py",
+    "shorts_generator/local/spoken_clarity.py"
+  ],
+  "fastTestModules": [
+    "tests.test_hook_gate_v4",
+    "tests.test_hook_gate_v4_prompt",
+    "tests.test_hook_v4_autoresearch"
+  ],
+  "fullTestCommand": [
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-q"
+  ],
+  "offlineExcludedTestModules": [
+    "test_youtube_publish"
+  ],
+  "contentHash": "36fdf8591981e3dc57dba20e670dfa2eca42aae1323d11cd15d82a3e0d529012"
+}

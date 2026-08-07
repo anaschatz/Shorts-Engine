@@ -93,6 +93,14 @@ def main() -> int:
         help="Rank and persist candidates without rendering clips",
     )
     parser.add_argument(
+        "--recent-publications",
+        default=None,
+        help=(
+            "JSON ledger containing public and scheduled uploads. V4 uses "
+            "its musicTrackId values to avoid recent track repetition."
+        ),
+    )
+    parser.add_argument(
         "--upload-youtube",
         action="store_true",
         help="Upload successful renders through the official YouTube Data API",
@@ -127,6 +135,17 @@ def main() -> int:
         return 1
 
     try:
+        recent_music_publications = None
+        if args.recent_publications:
+            with open(args.recent_publications, "r", encoding="utf-8") as handle:
+                recent_ledger = json.load(handle)
+            if not isinstance(recent_ledger, dict) or not isinstance(
+                recent_ledger.get("publications"), list
+            ):
+                raise ValueError(
+                    "--recent-publications must contain a publications list"
+                )
+            recent_music_publications = recent_ledger["publications"]
         control_plane_request = load_control_plane_request(os.environ)
         result = generate_shorts(
             youtube_url=args.url,
@@ -153,6 +172,7 @@ def main() -> int:
                 if control_plane_request
                 else None
             ),
+            recent_music_publications=recent_music_publications,
             select_only=args.select_only,
         )
         result = bind_control_plane_result(

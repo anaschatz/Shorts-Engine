@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "ObservedMusicControl",
+  "controlVersion": "bf-observed-music-control-v1.0.0",
+  "observedControlOnly": true,
+  "videoId": "V3pd9Yrmi-c",
+  "publishedAt": "2026-08-07T19:04:22Z",
+  "videoSha256": "6357e9a10143249ee008f7a6e3b63cd3d953bcacc0a38ee4391a6bf6755e8e6e",
+  "sourceHash": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e",
+  "sourceByteLength": 108955999,
+  "candidateHash": "9bf45eb50e2a79f0d39e7921297ba8fec6b9ba2b67c49e8a2b0898dc87c77c7b",
+  "transcriptTimingHash": "a0dcd8b47dca5c09bc6a4faf0c7b67138f225e07fc99aa5108decd29bda3e243",
+  "speechIntervalSeconds": [
+    252.58,
+    269.388
+  ],
+  "renderIntervalSeconds": [
+    252.58,
+    270.12
+  ],
+  "musicTreatment": "licensed_low_bed_v1",
+  "performanceLabel": null,
+  "approvalScope": "published_observed_control_identity_only",
+  "renderArtifact": {
+    "path": "output/today-v_HXVf32TGY-v2-tailfix/render/short_01.mp4",
+    "role": "today_published_observed_control",
+    "sha256": "6357e9a10143249ee008f7a6e3b63cd3d953bcacc0a38ee4391a6bf6755e8e6e",
+    "byteLength": 2113702
+  },
+  "supportingArtifacts": {
+    "uploadReceipt": {
+      "path": "output/today-v_HXVf32TGY-v2-tailfix/public-upload-receipt.json",
+      "role": "public_upload_receipt",
+      "sha256": "ce22ce5afeddc55d79d313bd97ca08495e57695e45bf71a700b2b2615383e28e",
+      "byteLength": 990
+    },
+    "targetedSelection": {
+      "path": "output/today-v_HXVf32TGY-v2-tailfix/targeted-selection-result.json",
+      "role": "source_candidate_binding",
+      "sha256": "fcf3e0c81a1b6f4784f0cf8c84f94cc2e6c0e715797d9fc6ada3f1f16ac68d65",
+      "byteLength": 30813
+    },
+    "gateDiagnostics": {
+      "path": "output/today-v_HXVf32TGY-v2-tailfix/targeted-gate-diagnostics.json",
+      "role": "sealed_transcript_interval_binding",
+      "sha256": "cd84677e986d9c84246998d7bf784e0d25f7b479239677c9a4801d8fb138798d",
+      "byteLength": 28784
+    },
+    "tailPatch": {
+      "path": "output/today-v_HXVf32TGY-v2-tailfix/render/tail-qa-patch.json",
+      "role": "final_render_interval_binding",
+      "sha256": "f32684fc7e7882d1b01ef14c433c18f48ee06468f2763efb88063e2ba930cae3",
+      "byteLength": 1008
+    }
+  },
+  "fixedAxes": {
+    "sourceAndSpeech": "f661c9dc7e3d910cd7cf819a349f4a0c724c428464316eeeb67eaf97aa0ed52e:252.580:269.388",
+    "layout": "editorial_inset",
+    "captions": "kinetic_editorial_v1",
+    "grade": "high_contrast_grayscale_v1",
+    "naturalTail": "speaker_to_270.120_then_brand_tail",
+    "enhancement": "realesrgan-x4plus:scale4:reference_blend_0.1",
+    "sourceCuts": "authentic_source_cuts_only",
+    "musicAsset": "sha256:30232da0b9521ed35e009162bfe7c63d06c9c8e4ca81ea5137ab63a9dc66cd98"
+  },
+  "planningInputs": {
+    "candidate": {
+      "music_profile": "reflective",
+      "opening_unit_exact_quote": "Don't attend every argument you're invited to.",
+      "payoff_exact_quote": "does not mean that it's an invitation for you to mandatorily give your opinion right back."
+    },
+    "captionCues": [
+      {"text": "don't", "spoken_start": 0.0, "spoken_end": 0.34},
+      {"text": "attend", "spoken_start": 0.34, "spoken_end": 0.62},
+      {"text": "every", "spoken_start": 0.62, "spoken_end": 1.02},
+      {"text": "argument", "spoken_start": 1.02, "spoken_end": 1.42},
+      {"text": "you're", "spoken_start": 1.42, "spoken_end": 1.64},
+      {"text": "invited", "spoken_start": 1.64, "spoken_end": 1.94},
+      {"text": "to", "spoken_start": 1.94, "spoken_end": 2.2},
+      {"text": "just", "spoken_start": 2.2, "spoken_end": 2.68},
+      {"text": "because", "spoken_start": 2.68, "spoken_end": 2.98},
+      {"text": "somebody", "spoken_start": 2.98, "spoken_end": 3.3},
+      {"text": "pushes", "spoken_start": 3.3, "spoken_end": 3.74},
+      {"text": "their", "spoken_start": 3.74, "spoken_end": 3.94},
+      {"text": "opinion", "spoken_start": 3.94, "spoken_end": 4.28},
+      {"text": "onto", "spoken_start": 4.28, "spoken_end": 4.62},
+      {"text": "you", "spoken_start": 4.62, "spoken_end": 4.94},
+      {"text": "to", "spoken_start": 4.94, "spoken_end": 5.4},
+      {"text": "talk", "spoken_start": 5.4, "spoken_end": 5.6},
+      {"text": "about", "spoken_start": 5.6, "spoken_end": 5.86},
+      {"text": "any", "spoken_start": 5.86, "spoken_end": 6.1},
+      {"text": "controversial", "spoken_start": 6.1, "spoken_end": 6.8},
+      {"text": "topic", "spoken_start": 6.8, "spoken_end": 7.84},
+      {"text": "does", "spoken_start": 7.84, "spoken_end": 8.9},
+      {"text": "not", "spoken_start": 8.9, "spoken_end": 9.12},
+      {"text": "mean", "spoken_start": 9.12, "spoken_end": 9.54},
+      {"text": "that", "spoken_start": 9.54, "spoken_end": 10.24},
+      {"text": "it's", "spoken_start": 10.24, "spoken_end": 10.46},
+      {"text": "an", "spoken_start": 10.46, "spoken_end": 10.54},
+      {"text": "invitation", "spoken_start": 10.54, "spoken_end": 10.98},
+      {"text": "for", "spoken_start": 10.98, "spoken_end": 11.38},
+      {"text": "you", "spoken_start": 11.38, "spoken_end": 11.62},
+      {"text": "to", "spoken_start": 11.62, "spoken_end": 12.2},
+      {"text": "mandatorily", "spoken_start": 12.2, "spoken_end": 14.26},
+      {"text": "give", "spoken_start": 14.26, "spoken_end": 15.0},
+      {"text": "your", "spoken_start": 15.0, "spoken_end": 15.2},
+      {"text": "opinion", "spoken_start": 15.2, "spoken_end": 15.98},
+      {"text": "right", "spoken_start": 15.98, "spoken_end": 16.38},
+      {"text": "back.", "spoken_start": 16.38, "spoken_end": 16.808}
+    ],
+    "durationSeconds": 18.533,
+    "speechEndSeconds": 16.808,
+    "naturalTailEndSeconds": 17.54
+  },
+  "contentHash": "eedde49b19a7a9a7352ca0354957689852bb8bfc488c9bc7ec8c18cffb69b5de"
+}
