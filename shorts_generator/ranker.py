@@ -614,6 +614,8 @@ def rank_highlights(
     transcript: Dict,
     content_type: str = "other",
     selection_profile: Optional[str] = None,
+    *,
+    require_speech_cleanliness: bool = False,
 ) -> List[Dict]:
     """Score candidates deterministically and place hard rejects last."""
     duration_total = _number(transcript.get("duration"), 0.0)
@@ -759,6 +761,52 @@ def rank_highlights(
                 rejection_reasons.append(
                     "semantic_closure_decision_version_mismatch"
                 )
+            if hook_gate_v3 and require_speech_cleanliness:
+                cleanliness_status = str(
+                    item.get("speech_cleanliness_status") or ""
+                ).strip().lower()
+                expected_cleanliness_version = str(
+                    _profiles.SELECTION_PROFILES[
+                        normalized_selection_profile
+                    ].get("speech_cleanliness_decision_version")
+                    or ""
+                )
+                observed_cleanliness_version = str(
+                    item.get("speech_cleanliness_decision_version") or ""
+                )
+                if not cleanliness_status:
+                    rejection_reasons.append(
+                        "speech_cleanliness_evidence_missing"
+                    )
+                elif (
+                    cleanliness_status != "pass"
+                    or item.get("speech_cleanliness_eligible") is not True
+                ):
+                    cleanliness_reasons = item.get(
+                        "speech_cleanliness_deterministic_reasons"
+                    )
+                    if isinstance(cleanliness_reasons, list):
+                        for reason in cleanliness_reasons:
+                            normalized_reason = str(reason or "").strip()
+                            if (
+                                normalized_reason
+                                and normalized_reason not in rejection_reasons
+                            ):
+                                rejection_reasons.append(normalized_reason)
+                    if not cleanliness_reasons:
+                        rejection_reasons.append(
+                            f"speech_cleanliness_{cleanliness_status}"
+                            if cleanliness_status != "pass"
+                            else "speech_cleanliness_not_eligible"
+                        )
+                if (
+                    expected_cleanliness_version
+                    and observed_cleanliness_version
+                    != expected_cleanliness_version
+                ):
+                    rejection_reasons.append(
+                        "speech_cleanliness_decision_version_mismatch"
+                    )
         if bool(item.get("is_promotional")):
             rejection_reasons.append("model_promotional")
         if bool(item.get("is_outro")):

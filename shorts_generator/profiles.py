@@ -66,6 +66,12 @@ BF_SMOOTH_TAIL_V5 = "bf_smooth_tail_v5"
 BF_NATURAL_TAIL_V6 = "bf_natural_tail_v6"
 BF_WINNER_PACKAGING_V1 = WINNER_PACKAGING_PROFILE
 BF_WINNER_LAYOUT_V1 = "bf_winner_layout_v1"
+SPEECH_CLEANLINESS_DECISION_VERSION = "bf-speech-cleanliness-v1.0.0"
+SPEECH_CLEANLINESS_FILLER_REJECT_COUNT = 2
+SPEECH_CLEANLINESS_UNCOVERED_REVIEW_COUNT = 3
+SPEECH_CLEANLINESS_INTERNAL_GAP_MIN_SECONDS = 0.24
+SPEECH_CLEANLINESS_WORD_EDGE_GUARD_SECONDS = 0.04
+SPEECH_CLEANLINESS_VAD_EVENT_MIN_SECONDS = 0.08
 
 # Descriptive aliases make call sites readable while keeping one canonical ID.
 MOTIVATIONAL_TENSION_MICRO = MOTIVATIONAL_TENSION_MICRO_V1
@@ -191,6 +197,28 @@ SELECTION_PROFILES: Dict[str, Dict] = {
         "hook_opening_start_tolerance_seconds": 0.10,
         "semantic_closure_decision_version": (
             SEMANTIC_CLOSURE_DECISION_VERSION
+        ),
+        # Source-audio evidence is required before feed-stop candidates may
+        # reach visual analysis or approval.  These thresholds describe the
+        # immutable v1 detector contract; an uncertain provider result never
+        # defaults to pass.
+        "speech_cleanliness_decision_version": (
+            SPEECH_CLEANLINESS_DECISION_VERSION
+        ),
+        "speech_cleanliness_filler_reject_count": (
+            SPEECH_CLEANLINESS_FILLER_REJECT_COUNT
+        ),
+        "speech_cleanliness_uncovered_review_count": (
+            SPEECH_CLEANLINESS_UNCOVERED_REVIEW_COUNT
+        ),
+        "speech_cleanliness_internal_gap_min_seconds": (
+            SPEECH_CLEANLINESS_INTERNAL_GAP_MIN_SECONDS
+        ),
+        "speech_cleanliness_word_edge_guard_seconds": (
+            SPEECH_CLEANLINESS_WORD_EDGE_GUARD_SECONDS
+        ),
+        "speech_cleanliness_vad_event_min_seconds": (
+            SPEECH_CLEANLINESS_VAD_EVENT_MIN_SECONDS
         ),
         "natural_tail_policy_version": NATURAL_TAIL_POLICY_VERSION,
         "closure_hard_min_seconds": 8.0,
@@ -504,6 +532,10 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
             versions["semantic_closure_decision_version"] = selection_contract[
                 "semantic_closure_decision_version"
             ]
+        if selection_contract.get("speech_cleanliness_decision_version"):
+            versions["speech_cleanliness_decision_version"] = selection_contract[
+                "speech_cleanliness_decision_version"
+            ]
         if selection_contract.get("natural_tail_policy_version"):
             versions["natural_tail_policy_version"] = selection_contract[
                 "natural_tail_policy_version"
@@ -602,6 +634,31 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
             "post_source_fade_seconds": selection_contract[
                 "post_source_fade_seconds"
             ],
+            "production_approval": bool(
+                selection_contract.get("production_approval", False)
+            ),
+        }
+    if selection_contract.get("speech_cleanliness_decision_version"):
+        immutable_contract["speech_cleanliness"] = {
+            "decision_version": selection_contract[
+                "speech_cleanliness_decision_version"
+            ],
+            "filler_reject_count": selection_contract[
+                "speech_cleanliness_filler_reject_count"
+            ],
+            "uncovered_review_count": selection_contract[
+                "speech_cleanliness_uncovered_review_count"
+            ],
+            "internal_gap_min_seconds": selection_contract[
+                "speech_cleanliness_internal_gap_min_seconds"
+            ],
+            "word_edge_guard_seconds": selection_contract[
+                "speech_cleanliness_word_edge_guard_seconds"
+            ],
+            "vad_event_min_seconds": selection_contract[
+                "speech_cleanliness_vad_event_min_seconds"
+            ],
+            "fail_closed": True,
             "production_approval": bool(
                 selection_contract.get("production_approval", False)
             ),

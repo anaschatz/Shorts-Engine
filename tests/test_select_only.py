@@ -1,7 +1,9 @@
 import io
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr
+from pathlib import Path
 from unittest.mock import patch
 
 import main as cli
@@ -103,6 +105,117 @@ class SelectOnlyTests(unittest.TestCase):
                 approved_transcript={"duration": 12.0, "segments": []},
                 select_only=True,
             )
+
+    def test_feed_stop_selection_rejects_unclean_audio_before_visual_analysis(self):
+        transcript = {
+            "duration": 20.0,
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 12.0,
+                    "text": "A complete point with clean reference words",
+                    "words": [
+                        {
+                            "start": index * 0.4,
+                            "end": index * 0.4 + 0.25,
+                            "word": word,
+                        }
+                        for index, word in enumerate(
+                            "A complete point with clean reference words".split()
+                        )
+                    ],
+                }
+            ],
+        }
+        candidate = {
+            "start_time": 0.0,
+            "end_time": 12.0,
+            "speech_start_time": 0.0,
+            "speech_end_time": 12.0,
+            "title": "One decision",
+            "rejected": False,
+            "rejection_reasons": [],
+        }
+        dirty = {
+            **candidate,
+            "speech_cleanliness_status": "reject",
+            "speech_cleanliness_eligible": False,
+            "speech_cleanliness_deterministic_reasons": [
+                "repeated_audible_fillers"
+            ],
+        }
+
+        def rank(items, *_args, require_speech_cleanliness=False, **_kwargs):
+            return [
+                {
+                    **item,
+                    "rejected": bool(require_speech_cleanliness),
+                    "rejection_reasons": (
+                        ["repeated_audible_fillers"]
+                        if require_speech_cleanliness
+                        else []
+                    ),
+                }
+                for item in items
+            ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            source.write_bytes(b"source-audio-fixture")
+            output = Path(directory) / "output"
+            cache = Path(directory) / "cache"
+            with patch(
+                "shorts_generator.local.downloader.download_youtube_local",
+                return_value=str(source),
+            ), patch(
+                "shorts_generator.pipeline.get_highlights",
+                return_value={
+                    "highlights": [candidate],
+                    "content_info": {"content_type": "motivational_podcast"},
+                },
+            ), patch(
+                "shorts_generator.pipeline.rank_highlights",
+                side_effect=rank,
+            ), patch(
+                "shorts_generator.local.speech_cleanliness."
+                "analyze_motivational_speech_cleanliness",
+                return_value=[dirty],
+            ) as analyze_audio, patch(
+                "shorts_generator.local.visual_features."
+                "analyze_motivational_editability",
+                side_effect=lambda _source, items, **_kwargs: list(items),
+            ) as analyze_visual, patch(
+                "shorts_generator.config.LOCAL_OUTPUT_DIR",
+                str(output),
+            ), patch(
+                "shorts_generator.config.LOCAL_CANDIDATE_CACHE_DIR",
+                str(cache),
+            ), patch(
+                "shorts_generator.config.LOCAL_SHOT_CACHE_DIR",
+                str(cache / "shots"),
+            ):
+                result = _run_local(
+                    "https://example.test/source",
+                    1,
+                    "9:16",
+                    "1080",
+                    "en",
+                    resolve_profile_bundle(
+                        format_profile="bf_feed_stop_format_v1"
+                    ),
+                    approved_transcript=transcript,
+                    select_only=True,
+                )
+
+        analyze_audio.assert_called_once()
+        self.assertEqual(analyze_visual.call_args.args[1], [])
+        self.assertEqual(result["selected_candidates"], [])
+        self.assertEqual(result["ranking"]["selected_count"], 0)
+        self.assertEqual(result["ranking"]["rejected_count"], 1)
+        self.assertIn(
+            "repeated_audible_fillers",
+            result["highlights"][0]["rejection_reasons"],
+        )
 
     def test_selection_only_persists_an_empty_selection_instead_of_rendering(self):
         transcript = {

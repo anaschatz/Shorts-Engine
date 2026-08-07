@@ -415,6 +415,66 @@ def candidate_profile_tuple(candidate: Dict) -> tuple[str, str, str, str]:
     )
 
 
+def _verify_feed_stop_speech_cleanliness(
+    candidate: Dict,
+    source_hash: str,
+    *,
+    transcript_timing_hash: Optional[str] = None,
+) -> Dict:
+    """Verify the fail-closed audio gate for the exact feed-stop profile.
+
+    The import is intentionally local: ``speech_cleanliness`` uses the common
+    artifact sealing helpers from this module, so importing it at module load
+    time would introduce a cycle.
+    """
+
+    from .speech_cleanliness import verify_speech_cleanliness_report
+
+    report = candidate.get("speechCleanlinessReport")
+    if not isinstance(report, dict):
+        raise ArtifactBindingError(
+            "feed-stop candidate lacks a speech-cleanliness report"
+        )
+    speech_start = candidate.get("speech_start_time", candidate.get("start_time"))
+    speech_end = candidate.get("speech_end_time", candidate.get("end_time"))
+    verified = verify_speech_cleanliness_report(
+        report,
+        source_hash=source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+        speech_interval=(speech_start, speech_end),
+        require_pass=True,
+    )
+    aliases = {
+        "speechCleanlinessStatus": verified["status"],
+        "speechCleanlinessEligible": verified["eligible"],
+        "speechCleanlinessRejectionReasons": verified["rejectionReasons"],
+        "speechCleanlinessReviewReasons": verified["reviewReasons"],
+        "speech_cleanliness_status": verified["status"],
+        "speech_cleanliness_eligible": verified["eligible"],
+        "speech_cleanliness_decision_version": verified["decisionVersion"],
+        "speech_cleanliness_reject_reasons": verified["rejectionReasons"],
+        "speech_cleanliness_review_reasons": verified["reviewReasons"],
+        "speech_cleanliness_deterministic_reasons": verified[
+            "deterministicReasons"
+        ],
+        "speech_cleanliness_provider_status": verified["providerStatus"],
+        "speech_cleanliness_lexical_filler_count": verified[
+            "lexicalFillerCount"
+        ],
+        "speech_cleanliness_uncovered_vocalization_count": verified[
+            "uncoveredVocalizationCount"
+        ],
+        "speech_cleanliness_prompted_filler_count": verified[
+            "promptedFillerCount"
+        ],
+    }
+    if any(candidate.get(field) != expected for field, expected in aliases.items()):
+        raise ArtifactBindingError(
+            "speech-cleanliness candidate aliases do not match the sealed report"
+        )
+    return verified
+
+
 def _semantic_source_cut_limit(candidate: Dict, source_cuts: Iterable[float]) -> int:
     cuts = sorted(float(value) for value in source_cuts)
     if not candidate.get("semantic_completion_source_cut_exception"):
@@ -466,6 +526,8 @@ def build_candidate_decision(
         raise ArtifactBindingError(
             "candidate profile tuple is not approved for a CandidateDecision"
         )
+    if profile_tuple == FEED_STOP_REPLAY_PROFILE_TUPLE:
+        _verify_feed_stop_speech_cleanliness(normalized, source_hash)
     speech_start = normalized.get("speech_start_time")
     speech_end = normalized.get("speech_end_time")
     duration = (

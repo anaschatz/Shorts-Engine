@@ -36,6 +36,7 @@ from .ranker import eligible_highlights, rank_highlights, select_diverse_highlig
 from .profiles import (
     BF_EDITORIAL_INSET_V1,
     BF_EDITORIAL_INSET_V2,
+    BF_FEED_STOP_V1,
     BF_WINNER_LAYOUT_V1,
     BF_WINNER_PACKAGING_V1,
     motivational_music_profile_for_candidate,
@@ -704,6 +705,9 @@ def _run_local(
     from .local.downloader import download_youtube_local
     from .local.llm import LLM_RESPONSE_SCHEMA_VERSION, call_local_llm
     from .local.transcriber import transcribe_local
+    from .local.speech_cleanliness import (
+        analyze_motivational_speech_cleanliness,
+    )
     from .local.visual_features import (
         analyze_candidate_visuals,
         analyze_motivational_editability,
@@ -879,6 +883,7 @@ def _run_local(
     # OpenCV candidate-frame metrics are rank-neutral for this profile, so
     # reject semantic failures before media analysis and never decode them.
     deferred_candidates: List[Dict] = []
+    source_hash: Optional[str] = None
     if content_type == "motivational_podcast":
         semantic_ranked = rank_highlights(
             candidates,
@@ -892,6 +897,45 @@ def _run_local(
         deferred_candidates = [
             dict(item) for item in semantic_ranked if item.get("rejected")
         ]
+
+        # HookGate and semantic closure operate on transcript evidence first.
+        # The feed-stop profile then fails closed on the exact source audio so
+        # clips with repeated off-screen backchannels or audible fillers never
+        # consume visual-analysis or render work.  Other profiles remain
+        # behavior-compatible and do not invoke this provider.
+        if resolved_profiles.get("selection_profile") == BF_FEED_STOP_V1:
+            with _timed(telemetry, "source_hash"):
+                source_hash = file_sha256(source_path)
+            with _timed(
+                telemetry,
+                "candidate_audio_cleanliness",
+                candidateCount=len(candidates),
+            ):
+                candidates = analyze_motivational_speech_cleanliness(
+                    source_path,
+                    candidates,
+                    transcript,
+                    source_hash,
+                    cache_dir=os.path.join(
+                        LOCAL_CANDIDATE_CACHE_DIR,
+                        "source-audio-evidence",
+                    ),
+                    telemetry=telemetry,
+                )
+            audio_ranked = rank_highlights(
+                candidates + deferred_candidates,
+                transcript,
+                content_type=content_type,
+                selection_profile=resolved_profiles.get("selection_profile"),
+                require_speech_cleanliness=True,
+            )
+            candidates = [
+                dict(item) for item in eligible_highlights(audio_ranked)
+            ]
+            deferred_candidates = [
+                dict(item) for item in audio_ranked if item.get("rejected")
+            ]
+
         semantic_selected = select_diverse_highlights(
             [dict(item) for item in candidates],
             limit=resolved_num_clips,
@@ -936,9 +980,14 @@ def _run_local(
             transcript,
             content_type=content_type,
             selection_profile=resolved_profiles.get("selection_profile"),
+            require_speech_cleanliness=(
+                resolved_profiles.get("selection_profile")
+                == BF_FEED_STOP_V1
+            ),
         )
-    with _timed(telemetry, "source_hash"):
-        source_hash = file_sha256(source_path)
+    if source_hash is None:
+        with _timed(telemetry, "source_hash"):
+            source_hash = file_sha256(source_path)
     all_highlights = [
         {
             **{key: value for key, value in item.items() if key != "candidate_hash"},

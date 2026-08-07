@@ -23,6 +23,9 @@ from shorts_generator.production_workflow import (
     render_approved_candidate,
     render_approved_candidates,
 )
+from shorts_generator.speech_cleanliness import (
+    evaluate_speech_cleanliness_evidence,
+)
 
 
 class ProductionWorkflowTests(unittest.TestCase):
@@ -40,6 +43,53 @@ class ProductionWorkflowTests(unittest.TestCase):
             "rejection_reasons": [],
             "source_cut_count": 0,
         }
+        report = evaluate_speech_cleanliness_evidence(
+            source_hash=source_hash,
+            transcript_timing_hash="b" * 64,
+            speech_start=0.0,
+            speech_end=12.0,
+            lexical_fillers=[],
+            uncovered_vocalizations=[],
+            prompted_fillers=[],
+            provider_identity={"provider": "test"},
+        )
+        candidate_body.update(
+            {
+                "speechCleanlinessReport": report,
+                "speechCleanlinessStatus": report["status"],
+                "speechCleanlinessEligible": report["eligible"],
+                "speechCleanlinessRejectionReasons": report[
+                    "rejectionReasons"
+                ],
+                "speechCleanlinessReviewReasons": report["reviewReasons"],
+                "speech_cleanliness_decision_version": report[
+                    "decisionVersion"
+                ],
+                "speech_cleanliness_status": report["status"],
+                "speech_cleanliness_eligible": report["eligible"],
+                "speech_cleanliness_reject_reasons": report[
+                    "rejectionReasons"
+                ],
+                "speech_cleanliness_review_reasons": report[
+                    "reviewReasons"
+                ],
+                "speech_cleanliness_deterministic_reasons": report[
+                    "deterministicReasons"
+                ],
+                "speech_cleanliness_provider_status": report[
+                    "providerStatus"
+                ],
+                "speech_cleanliness_lexical_filler_count": report[
+                    "lexicalFillerCount"
+                ],
+                "speech_cleanliness_uncovered_vocalization_count": report[
+                    "uncoveredVocalizationCount"
+                ],
+                "speech_cleanliness_prompted_filler_count": report[
+                    "promptedFillerCount"
+                ],
+            }
+        )
         candidate = {
             **candidate_body,
             "candidate_hash": candidate_hash(candidate_body, source_hash),

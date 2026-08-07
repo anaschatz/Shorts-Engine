@@ -11,6 +11,7 @@ from shorts_generator.pipeline import build_ranking_manifest, generate_shorts
 from shorts_generator.profiles import (
     BF_EDITORIAL_INSET_V1,
     BF_EDITORIAL_INSET_V2,
+    BF_FEED_STOP_FORMAT_V1,
     BF_GROWTH_V2,
     BF_NATURAL_TAIL_V6,
     BF_VIRAL_MICRO_V1,
@@ -18,6 +19,7 @@ from shorts_generator.profiles import (
     MOTIVATIONAL_PODCAST,
     MOTIVATIONAL_TENSION_MICRO_V1,
     MOTIVATIONAL_TENSION_MICRO_V2,
+    SPEECH_CLEANLINESS_DECISION_VERSION,
     profile_manifest_metadata,
     render_settings_for_content,
     resolve_profile_bundle,
@@ -37,6 +39,29 @@ from shorts_generator.hook_gate import (
 
 
 class VersionedProfileTests(unittest.TestCase):
+    def test_feed_stop_freezes_fail_closed_speech_cleanliness_contract(self):
+        metadata = profile_manifest_metadata(
+            resolve_profile_bundle(format_profile=BF_FEED_STOP_FORMAT_V1)
+        )
+
+        self.assertEqual(
+            metadata["versions"]["speech_cleanliness_decision_version"],
+            SPEECH_CLEANLINESS_DECISION_VERSION,
+        )
+        self.assertEqual(
+            metadata["contract"]["speech_cleanliness"],
+            {
+                "decision_version": SPEECH_CLEANLINESS_DECISION_VERSION,
+                "filler_reject_count": 2,
+                "uncovered_review_count": 3,
+                "internal_gap_min_seconds": 0.24,
+                "word_edge_guard_seconds": 0.04,
+                "vad_event_min_seconds": 0.08,
+                "fail_closed": True,
+                "production_approval": False,
+            },
+        )
+
     def test_growth_v2_is_opt_in_and_carries_hook_contract(self):
         resolved = resolve_profile_bundle(format_profile=BF_GROWTH_V2)
         metadata = profile_manifest_metadata(resolved)

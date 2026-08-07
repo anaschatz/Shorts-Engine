@@ -8,9 +8,13 @@ import budget_friendly_ops as ops
 from shorts_generator import youtube_uploader as youtube_uploader_module
 from shorts_generator.artifact_contracts import (
     ArtifactBindingError,
+    build_replay_transcript_manifest,
     candidate_hash,
     content_hash,
     file_sha256,
+)
+from shorts_generator.speech_cleanliness import (
+    evaluate_speech_cleanliness_evidence,
 )
 from shorts_generator.pipeline import build_ranking_manifest
 from shorts_generator.profiles import (
@@ -61,6 +65,63 @@ def replay_backfill_transcript(
             "language": "en",
         }
     return transcript
+
+
+def attach_clean_speech_report(
+    candidate_body,
+    source_hash,
+    transcript,
+    *,
+    transcript_timing_hash=None,
+):
+    report = evaluate_speech_cleanliness_evidence(
+        source_hash=source_hash,
+        transcript_timing_hash=(
+            transcript_timing_hash
+            or build_replay_transcript_manifest(
+                transcript,
+                source_hash,
+            )["transcriptTimingHash"]
+        ),
+        speech_start=candidate_body.get(
+            "speech_start_time",
+            candidate_body["start_time"],
+        ),
+        speech_end=candidate_body.get(
+            "speech_end_time",
+            candidate_body["end_time"],
+        ),
+        lexical_fillers=[],
+        uncovered_vocalizations=[],
+        prompted_fillers=[],
+        provider_identity={"provider": "test"},
+    )
+    return {
+        **candidate_body,
+        "speechCleanlinessReport": report,
+        "speechCleanlinessStatus": report["status"],
+        "speechCleanlinessEligible": report["eligible"],
+        "speechCleanlinessRejectionReasons": report["rejectionReasons"],
+        "speechCleanlinessReviewReasons": report["reviewReasons"],
+        "speech_cleanliness_decision_version": report["decisionVersion"],
+        "speech_cleanliness_status": report["status"],
+        "speech_cleanliness_eligible": report["eligible"],
+        "speech_cleanliness_reject_reasons": report["rejectionReasons"],
+        "speech_cleanliness_review_reasons": report["reviewReasons"],
+        "speech_cleanliness_deterministic_reasons": report[
+            "deterministicReasons"
+        ],
+        "speech_cleanliness_provider_status": report["providerStatus"],
+        "speech_cleanliness_lexical_filler_count": report[
+            "lexicalFillerCount"
+        ],
+        "speech_cleanliness_uncovered_vocalization_count": report[
+            "uncoveredVocalizationCount"
+        ],
+        "speech_cleanliness_prompted_filler_count": report[
+            "promptedFillerCount"
+        ],
+    }
 
 
 class BudgetFriendlyOpsTests(unittest.TestCase):
@@ -513,6 +574,15 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 "rejection_reasons": [],
                 "source_cut_count": 0,
             }
+            transcript = replay_backfill_transcript(
+                "Approval is a trap choose your standard instead",
+                source_hash,
+            )
+            candidate_body = attach_clean_speech_report(
+                candidate_body,
+                source_hash,
+                transcript,
+            )
             candidate = {
                 **candidate_body,
                 "candidate_hash": candidate_hash(candidate_body, source_hash),
@@ -527,10 +597,7 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                     format_profile=BF_FEED_STOP_FORMAT_V1
                 ),
                 source_hash=source_hash,
-                transcript=replay_backfill_transcript(
-                    "Approval is a trap choose your standard instead",
-                    source_hash,
-                ),
+                transcript=transcript,
             )
             ranking_path = root / "ranking.json"
             decision_path = root / "decision.json"
@@ -584,6 +651,92 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
         self.assertEqual(label["candidateDecision"], decision)
         self.assertEqual(label["labelSemantics"], "explicit_human_approval")
         self.assertEqual(dataset["rankingManifestHash"], ranking["contentHash"])
+
+    def test_feed_stop_candidate_from_file_binds_cleanliness_to_replay_transcript(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"feed-stop-binding")
+            source_hash = file_sha256(str(source))
+            text = "Approval is a trap choose your standard instead"
+            transcript = replay_backfill_transcript(text, source_hash)
+            base = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "speech_start_time": 0.0,
+                "speech_end_time": 11.5,
+                "title": "Stop seeking approval",
+                "candidate_text": text,
+                "content_profile": "motivational_podcast",
+                "selection_profile": "bf_feed_stop_v1",
+                "render_profile": "bf_editorial_inset_v2",
+                "format_profile": "bf_feed_stop_format_v1",
+                "selection_rank": 1,
+                "rejected": False,
+                "rejection_reasons": [],
+                "source_cut_count": 0,
+            }
+            mismatched = attach_clean_speech_report(
+                base,
+                source_hash,
+                transcript,
+                transcript_timing_hash="f" * 64,
+            )
+            tampered = attach_clean_speech_report(
+                base,
+                source_hash,
+                transcript,
+            )
+            tampered["speechCleanlinessReport"] = {
+                **tampered["speechCleanlinessReport"],
+                "providerStatus": "tampered",
+            }
+            cases = (
+                (
+                    "missing",
+                    base,
+                    "lacks a speech-cleanliness report",
+                ),
+                (
+                    "transcript-mismatch",
+                    mismatched,
+                    "another transcript",
+                ),
+                (
+                    "tampered-report",
+                    tampered,
+                    "contentHash does not match",
+                ),
+            )
+            for name, candidate_body, message in cases:
+                with self.subTest(name=name):
+                    candidate = {
+                        **candidate_body,
+                        "candidate_hash": candidate_hash(
+                            candidate_body,
+                            source_hash,
+                        ),
+                    }
+                    ranking = build_ranking_manifest(
+                        "https://example.test/feed-stop-binding",
+                        str(source),
+                        "motivational_podcast",
+                        [candidate],
+                        [candidate],
+                        profiles=resolve_profile_bundle(
+                            format_profile=BF_FEED_STOP_FORMAT_V1
+                        ),
+                        source_hash=source_hash,
+                        transcript=transcript,
+                    )
+                    ranking_path = root / f"{name}.json"
+                    ops.write_json(str(ranking_path), ranking)
+                    with self.assertRaisesRegex(ArtifactBindingError, message):
+                        ops.candidate_from_file(
+                            str(ranking_path),
+                            1,
+                            str(source),
+                        )
 
     def test_approve_rejects_unallowlisted_and_mixed_profile_contracts(self):
         cases = (

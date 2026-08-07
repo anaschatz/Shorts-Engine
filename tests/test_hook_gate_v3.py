@@ -34,6 +34,7 @@ from shorts_generator.profiles import (
     BF_FEED_STOP_V1,
     BF_NATURAL_TAIL_V6,
     MOTIVATIONAL_PODCAST,
+    SPEECH_CLEANLINESS_DECISION_VERSION,
     render_settings_for_content,
     resolve_profile_bundle,
     selection_settings,
@@ -80,6 +81,37 @@ def candidate_for(text, *, duration=12.0, **overrides):
     }
     candidate.update(overrides)
     return candidate, words
+
+
+def rankable_feed_stop_candidate():
+    candidate, words = candidate_for(
+        "If you're nervous, stop thinking about yourself."
+    )
+    evaluated = evaluate_hook_gate_v3(candidate, words)
+    evaluated.update(
+        {
+            "selection_profile": BF_FEED_STOP_V1,
+            "selection_policy_version": BF_FEED_STOP_V1,
+            "has_hook": True,
+            "has_development": True,
+            "has_takeaway": True,
+            "has_complete_ending": True,
+            "hook_payoff_aligned": True,
+            "takeaway_boundary_aligned": True,
+            "semantic_continuation_required": False,
+            "semantic_closure_status": "pass",
+            "semantic_closure_eligible": True,
+            "semantic_closure_decision_version": (
+                SEMANTIC_CLOSURE_DECISION_VERSION
+            ),
+            "semantic_closure_deterministic_reasons": [],
+            "semantic_tension_score": 90,
+            "self_contained_micro_arc_score": 90,
+            "context_dependence_score": 0,
+            "generic_motivation_score": 0,
+        }
+    )
+    return evaluated, transcript_for_words(words, duration=12.0)
 
 
 class HookGateV3Tests(unittest.TestCase):
@@ -434,6 +466,88 @@ class HookGateV3Tests(unittest.TestCase):
         )
         self.assertFalse(ranked["rejected"])
         self.assertEqual(ranked["final_score"], evaluated["hookGateScore"])
+
+    def test_20a_feed_stop_ranker_requires_clean_source_audio_evidence(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            require_speech_cleanliness=True,
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "speech_cleanliness_evidence_missing",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20b_feed_stop_ranker_propagates_audio_review_reason(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate.update(
+            {
+                "speech_cleanliness_decision_version": (
+                    SPEECH_CLEANLINESS_DECISION_VERSION
+                ),
+                "speech_cleanliness_status": "review",
+                "speech_cleanliness_eligible": False,
+                "speech_cleanliness_deterministic_reasons": [
+                    "unresolved_internal_vocalizations"
+                ],
+            }
+        )
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            require_speech_cleanliness=True,
+        )
+
+        self.assertTrue(ranked["rejected"])
+        self.assertIn(
+            "unresolved_internal_vocalizations",
+            ranked["rejection_reasons"],
+        )
+
+    def test_20c_feed_stop_ranker_accepts_exact_cleanliness_pass_only(self):
+        candidate, transcript = rankable_feed_stop_candidate()
+        candidate.update(
+            {
+                "speech_cleanliness_decision_version": (
+                    SPEECH_CLEANLINESS_DECISION_VERSION
+                ),
+                "speech_cleanliness_status": "pass",
+                "speech_cleanliness_eligible": True,
+                "speech_cleanliness_deterministic_reasons": [],
+            }
+        )
+
+        [ranked] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            require_speech_cleanliness=True,
+        )
+        self.assertFalse(ranked["rejected"])
+
+        candidate["speech_cleanliness_decision_version"] = "future-version"
+        [stale] = rank_highlights(
+            [candidate],
+            transcript,
+            content_type=MOTIVATIONAL_PODCAST,
+            selection_profile=BF_FEED_STOP_V1,
+            require_speech_cleanliness=True,
+        )
+        self.assertTrue(stale["rejected"])
+        self.assertIn(
+            "speech_cleanliness_decision_version_mismatch",
+            stale["rejection_reasons"],
+        )
 
     def test_21_brand_tail_variant_reuses_encoded_control_prefix(self):
         with tempfile.TemporaryDirectory() as directory:

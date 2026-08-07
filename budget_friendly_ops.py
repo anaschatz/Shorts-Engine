@@ -13,6 +13,8 @@ from shorts_generator.artifact_contracts import (
     ArtifactBindingError,
     CANDIDATE_DECISION_PROFILE_RULES,
     CANDIDATE_PROFILE_FIELDS,
+    FEED_STOP_REPLAY_PROFILE_TUPLE,
+    _verify_feed_stop_speech_cleanliness,
     build_candidate_decision,
     build_publish_manifest,
     build_replay_transcript_manifest,
@@ -164,6 +166,24 @@ def candidate_from_file(
     for field, expected in expected_candidate_profiles.items():
         if str(candidate.get(field) or "").strip().lower() != expected:
             raise ArtifactBindingError(f"ranking candidate {field} is incompatible")
+    if expected_profile_tuple == FEED_STOP_REPLAY_PROFILE_TUPLE:
+        transcript_manifest = ranking.get("replayTranscriptManifest")
+        if not isinstance(transcript_manifest, dict):
+            raise ArtifactBindingError(
+                "feed-stop ranking lacks a replay transcript manifest"
+            )
+        verified_transcript_manifest = verify_replay_transcript_manifest(
+            transcript_manifest,
+            source_hash=source_hash,
+            require_timed_words=True,
+        )
+        _verify_feed_stop_speech_cleanliness(
+            candidate,
+            source_hash,
+            transcript_timing_hash=verified_transcript_manifest[
+                "transcriptTimingHash"
+            ],
+        )
     declared_candidate_hash = str(candidate.get("candidate_hash") or "").strip().lower()
     if declared_candidate_hash != candidate_hash(candidate, source_hash):
         raise ArtifactBindingError("ranking candidate hash is stale")

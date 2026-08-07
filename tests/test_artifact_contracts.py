@@ -19,6 +19,9 @@ from shorts_generator.artifact_contracts import (
 )
 from shorts_generator.experiment import build_experiment_manifest
 from shorts_generator.originality import evaluate_originality
+from shorts_generator.speech_cleanliness import (
+    evaluate_speech_cleanliness_evidence,
+)
 
 
 SOURCE_HASH = "a" * 64
@@ -44,6 +47,60 @@ def candidate():
     return {**value, "candidate_hash": candidate_hash(value, SOURCE_HASH)}
 
 
+def feed_stop_candidate():
+    value = {
+        key: item for key, item in candidate().items() if key != "candidate_hash"
+    }
+    value.update(
+        {
+            "end_time": 33.0,
+            "speech_start_time": 10.0,
+            "speech_end_time": 33.0,
+            "selection_profile": "bf_feed_stop_v1",
+            "render_profile": "bf_editorial_inset_v2",
+            "format_profile": "bf_feed_stop_format_v1",
+        }
+    )
+    report = evaluate_speech_cleanliness_evidence(
+        source_hash=SOURCE_HASH,
+        transcript_timing_hash="b" * 64,
+        speech_start=10.0,
+        speech_end=33.0,
+        lexical_fillers=[],
+        uncovered_vocalizations=[],
+        prompted_fillers=[],
+        provider_identity={"provider": "test"},
+    )
+    value.update(
+        {
+            "speechCleanlinessReport": report,
+            "speechCleanlinessStatus": report["status"],
+            "speechCleanlinessEligible": report["eligible"],
+            "speechCleanlinessRejectionReasons": report["rejectionReasons"],
+            "speechCleanlinessReviewReasons": report["reviewReasons"],
+            "speech_cleanliness_status": report["status"],
+            "speech_cleanliness_eligible": report["eligible"],
+            "speech_cleanliness_decision_version": report["decisionVersion"],
+            "speech_cleanliness_reject_reasons": report["rejectionReasons"],
+            "speech_cleanliness_review_reasons": report["reviewReasons"],
+            "speech_cleanliness_deterministic_reasons": report[
+                "deterministicReasons"
+            ],
+            "speech_cleanliness_provider_status": report["providerStatus"],
+            "speech_cleanliness_lexical_filler_count": report[
+                "lexicalFillerCount"
+            ],
+            "speech_cleanliness_uncovered_vocalization_count": report[
+                "uncoveredVocalizationCount"
+            ],
+            "speech_cleanliness_prompted_filler_count": report[
+                "promptedFillerCount"
+            ],
+        }
+    )
+    return {**value, "candidate_hash": candidate_hash(value, SOURCE_HASH)}
+
+
 class ArtifactContractsTests(unittest.TestCase):
     def decision(self):
         return build_candidate_decision(
@@ -62,23 +119,7 @@ class ArtifactContractsTests(unittest.TestCase):
         self.assertIs(verify_seal(first, "CandidateDecision"), first)
 
     def test_feed_stop_candidate_decision_preserves_exact_review_profile(self):
-        body = {
-            key: value
-            for key, value in candidate().items()
-            if key != "candidate_hash"
-        }
-        body.update(
-            {
-                "end_time": 33.0,
-                "selection_profile": "bf_feed_stop_v1",
-                "render_profile": "bf_editorial_inset_v2",
-                "format_profile": "bf_feed_stop_format_v1",
-            }
-        )
-        feed_stop = {
-            **body,
-            "candidate_hash": candidate_hash(body, SOURCE_HASH),
-        }
+        feed_stop = feed_stop_candidate()
 
         decision = build_candidate_decision(
             feed_stop,
@@ -93,6 +134,74 @@ class ArtifactContractsTests(unittest.TestCase):
         self.assertEqual(decision["renderProfile"], "bf_editorial_inset_v2")
         self.assertEqual(decision["formatProfile"], "bf_feed_stop_format_v1")
         self.assertIs(verify_seal(decision, "CandidateDecision"), decision)
+
+    def test_feed_stop_candidate_decision_requires_cleanliness_report(self):
+        feed_stop = feed_stop_candidate()
+        body = {
+            key: value
+            for key, value in feed_stop.items()
+            if key != "candidate_hash"
+            and not key.startswith("speechCleanliness")
+            and not key.startswith("speech_cleanliness_")
+        }
+        missing = {**body, "candidate_hash": candidate_hash(body, SOURCE_HASH)}
+
+        with self.assertRaisesRegex(
+            ArtifactBindingError,
+            "lacks a speech-cleanliness report",
+        ):
+            build_candidate_decision(
+                missing,
+                SOURCE_HASH,
+                reviewer="operator_1",
+                decided_at="2026-08-07T12:00:00Z",
+                ranking_manifest_hash=RANKING_HASH,
+            )
+
+    def test_feed_stop_candidate_decision_rejects_stale_interval_and_aliases(self):
+        feed_stop = feed_stop_candidate()
+        stale_report = evaluate_speech_cleanliness_evidence(
+            source_hash=SOURCE_HASH,
+            transcript_timing_hash="b" * 64,
+            speech_start=10.0,
+            speech_end=32.0,
+            lexical_fillers=[],
+            uncovered_vocalizations=[],
+            prompted_fillers=[],
+        )
+        stale_body = {
+            **{key: value for key, value in feed_stop.items() if key != "candidate_hash"},
+            "speechCleanlinessReport": stale_report,
+        }
+        stale = {
+            **stale_body,
+            "candidate_hash": candidate_hash(stale_body, SOURCE_HASH),
+        }
+        with self.assertRaisesRegex(ArtifactBindingError, "interval is stale"):
+            build_candidate_decision(
+                stale,
+                SOURCE_HASH,
+                reviewer="operator_1",
+                decided_at="2026-08-07T12:00:00Z",
+                ranking_manifest_hash=RANKING_HASH,
+            )
+
+        alias_body = {
+            **{key: value for key, value in feed_stop.items() if key != "candidate_hash"},
+            "speech_cleanliness_status": "review",
+        }
+        alias_mismatch = {
+            **alias_body,
+            "candidate_hash": candidate_hash(alias_body, SOURCE_HASH),
+        }
+        with self.assertRaisesRegex(ArtifactBindingError, "aliases do not match"):
+            build_candidate_decision(
+                alias_mismatch,
+                SOURCE_HASH,
+                reviewer="operator_1",
+                decided_at="2026-08-07T12:00:00Z",
+                ranking_manifest_hash=RANKING_HASH,
+            )
 
     def test_transcript_manifest_preserves_exact_json_and_binds_source(self):
         transcript = {
