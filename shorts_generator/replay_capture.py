@@ -1,7 +1,8 @@
-"""Immutable explicit-human approval evidence for offline Autoresearch replay.
+"""Immutable explicit-human review evidence for offline Autoresearch replay.
 
-Capture is deliberately attached to the reviewed approval boundary. Engine
-selection is retained as provenance only; it never becomes a human label.
+Positive capture is attached to the reviewed approval boundary; explicit
+rejections live in a separate non-production lane. Engine selection is
+retained as provenance only and never becomes a human label.
 """
 from __future__ import annotations
 
@@ -29,6 +30,67 @@ DATASET_ARTIFACT_TYPE = "BudgetFriendlyReplayCaptureDatasetV2"
 LABEL_ARTIFACT_TYPE = "BudgetFriendlyReplayCaptureLabelV2"
 ENGINE_SELECTION_SEMANTICS = "unknown_not_human_label"
 HUMAN_LABEL_SEMANTICS = "explicit_human_approval"
+HUMAN_REJECTION_VERSION = "bf-replay-human-rejection-v1.0.0"
+HUMAN_REJECTION_ARTIFACT_TYPE = "BudgetFriendlyReplayHumanRejectionV1"
+HUMAN_REJECTION_RECEIPT_TYPE = "BudgetFriendlyReplayHumanRejectionReceiptV1"
+HUMAN_REJECTION_SEMANTICS = "explicit_human_rejection"
+HUMAN_REJECTION_REASON_CODES = frozenset(
+    {
+        "abrupt_ending",
+        "audible_backchannels",
+        "audible_fillers",
+        "captions_obscure_face",
+        "distracting_editing",
+        "incomplete_point",
+        "main_speech_obscured",
+        "other_editorial",
+        "poor_caption_timing",
+        "poor_visual_quality",
+        "repeated_topic",
+        "unclear_context",
+        "unsuitable_speaker",
+        "weak_hook",
+    }
+)
+
+
+def _normalized_reason_codes(reason_codes: object) -> list[str]:
+    if (
+        not isinstance(reason_codes, Sequence)
+        or isinstance(reason_codes, (str, bytes))
+    ):
+        raise ArtifactBindingError("reasonCodes must be a nonempty list")
+    normalized = []
+    for raw in reason_codes:
+        code = "_".join(
+            str(raw or "").strip().lower().replace("-", " ").split()
+        )
+        if code not in HUMAN_REJECTION_REASON_CODES:
+            raise ArtifactBindingError(f"unknown human rejection reason code: {code}")
+        normalized.append(code)
+    normalized = sorted(set(normalized))
+    if not normalized:
+        raise ArtifactBindingError("reasonCodes must be a nonempty list")
+    return normalized
+
+
+def _normalized_evidence_refs(evidence_refs: object) -> Dict[str, str]:
+    if evidence_refs is None:
+        return {}
+    if not isinstance(evidence_refs, Mapping):
+        raise ArtifactBindingError("evidenceRefs must be an object")
+    normalized: Dict[str, str] = {}
+    for raw_key, raw_value in evidence_refs.items():
+        key = str(raw_key or "").strip()
+        if (
+            not key
+            or not key[0].isalpha()
+            or not key.endswith("Hash")
+            or not all(char.isalnum() for char in key[:-4])
+        ):
+            raise ArtifactBindingError("evidenceRefs keys must be named hashes")
+        normalized[key] = _sha256(raw_value, f"evidenceRefs.{key}")
+    return dict(sorted(normalized.items()))
 
 
 def _strict_snapshot(value: object, field: str) -> object:
@@ -276,6 +338,353 @@ def verify_replay_capture_dataset(artifact: Dict) -> Dict:
     return dataset
 
 
+def _rejection_candidate(
+    dataset: Mapping[str, object],
+    candidate_hash_value: object,
+) -> tuple[Dict, int]:
+    normalized_hash = _sha256(candidate_hash_value, "candidateHash")
+    matches = [
+        (index, candidate)
+        for index, candidate in enumerate(dataset.get("candidates") or [])
+        if isinstance(candidate, dict)
+        and candidate.get("candidate_hash") == normalized_hash
+    ]
+    if len(matches) != 1:
+        raise ArtifactBindingError(
+            "human rejection candidate must exist exactly once in the capture dataset"
+        )
+    index, candidate = matches[0]
+    return candidate, index
+
+
+def _candidate_rank(candidate: Mapping[str, object]) -> int:
+    declared = candidate.get("selection_rank", candidate.get("output_rank"))
+    if isinstance(declared, bool):
+        raise ArtifactBindingError("rejected candidate rank is invalid")
+    try:
+        rank = int(declared)
+    except (TypeError, ValueError) as error:
+        raise ArtifactBindingError("rejected candidate rank is missing") from error
+    if rank < 1:
+        raise ArtifactBindingError("rejected candidate rank is invalid")
+    return rank
+
+
+def _normalized_optional_rank(
+    rejected_rank: object,
+    candidate: Mapping[str, object],
+) -> int | None:
+    if rejected_rank is None:
+        return None
+    if isinstance(rejected_rank, bool):
+        raise ArtifactBindingError("rejectedRank must be a positive integer")
+    try:
+        normalized = int(rejected_rank)
+    except (TypeError, ValueError) as error:
+        raise ArtifactBindingError(
+            "rejectedRank must be a positive integer"
+        ) from error
+    if normalized < 1 or normalized != _candidate_rank(candidate):
+        raise ArtifactBindingError(
+            "rejectedRank is not bound to the rejected candidate"
+        )
+    return normalized
+
+
+def _candidate_speech_interval(candidate: Mapping[str, object]) -> tuple[float, float]:
+    start = _finite(
+        candidate.get("speech_start_time", candidate.get("start_time")),
+        "candidate speech start",
+    )
+    end = _finite(
+        candidate.get("speech_end_time", candidate.get("end_time")),
+        "candidate speech end",
+    )
+    if start < 0.0 or end <= start:
+        raise ArtifactBindingError("candidate speech interval is invalid")
+    return start, end
+
+
+def _verify_rejection_speech_cleanliness_evidence(
+    *,
+    dataset: Mapping[str, object],
+    candidate: Mapping[str, object],
+    evidence_refs: Mapping[str, str],
+    speech_cleanliness_report: object = None,
+) -> None:
+    """Bind an optional cleanliness report without making it an approval gate."""
+
+    candidate_report = candidate.get("speechCleanlinessReport")
+    supplied_report = speech_cleanliness_report
+    report_hash = evidence_refs.get("speechCleanlinessReportHash")
+    reports = []
+    if candidate_report is not None:
+        if not isinstance(candidate_report, dict):
+            raise ArtifactBindingError(
+                "candidate speech-cleanliness report is invalid"
+            )
+        reports.append(candidate_report)
+    if supplied_report is not None:
+        if not isinstance(supplied_report, dict):
+            raise ArtifactBindingError("speech-cleanliness report is invalid")
+        if candidate_report is None:
+            raise ArtifactBindingError(
+                "external-only speech-cleanliness evidence is not self-contained"
+            )
+        reports.append(supplied_report)
+
+    if reports and report_hash is None:
+        raise ArtifactBindingError(
+            "speech-cleanliness report requires an exact evidence reference"
+        )
+    if report_hash is not None and not reports:
+        raise ArtifactBindingError(
+            "speechCleanlinessReportHash has no bound report"
+        )
+    if not reports:
+        return
+
+    from .speech_cleanliness import verify_speech_cleanliness_report
+
+    interval = _candidate_speech_interval(candidate)
+    for report in reports:
+        verified = verify_speech_cleanliness_report(
+            report,
+            source_hash=str(dataset.get("sourceHash") or ""),
+            transcript_timing_hash=str(
+                dataset.get("transcriptTimingHash") or ""
+            ),
+            speech_interval=interval,
+            require_pass=False,
+        )
+        if verified.get("contentHash") != report_hash:
+            raise ArtifactBindingError(
+                "speech-cleanliness report hash binding is stale"
+            )
+
+
+def build_replay_human_rejection(
+    dataset_artifact: Dict,
+    candidate_hash_value: str,
+    *,
+    reviewer: str,
+    decided_at: str,
+    reason_codes: Sequence[str],
+    rejected_rank: int | None = None,
+    notes: str = "",
+    evidence_refs: Mapping[str, object] | None = None,
+    speech_cleanliness_report: Dict | None = None,
+) -> Dict:
+    """Build a sealed negative event from an explicit human rejection.
+
+    This is intentionally not a ``CandidateDecision`` and is never accepted by
+    the positive-label ingestion path.
+    """
+
+    dataset = verify_replay_capture_dataset(dataset_artifact)
+    candidate, candidate_index = _rejection_candidate(
+        dataset,
+        candidate_hash_value,
+    )
+    normalized_reviewer = str(reviewer or "").strip()
+    normalized_decided_at = str(decided_at or "").strip()
+    if not normalized_reviewer or not normalized_decided_at:
+        raise ArtifactBindingError("reviewer and decided_at are required")
+    normalized_reasons = _normalized_reason_codes(reason_codes)
+    normalized_refs = _normalized_evidence_refs(evidence_refs)
+
+    candidate_report = candidate.get("speechCleanlinessReport")
+    if speech_cleanliness_report is not None and candidate_report is None:
+        raise ArtifactBindingError(
+            "external-only speech-cleanliness evidence is not self-contained"
+        )
+    reports = [
+        report
+        for report in (candidate_report, speech_cleanliness_report)
+        if report is not None
+    ]
+    if reports:
+        report_hashes = {
+            _sha256(
+                report.get("contentHash") if isinstance(report, Mapping) else None,
+                "speechCleanlinessReport.contentHash",
+            )
+            for report in reports
+        }
+        if len(report_hashes) != 1:
+            raise ArtifactBindingError(
+                "supplied speech-cleanliness report differs from candidate evidence"
+            )
+        exact_report_hash = next(iter(report_hashes))
+        declared_report_hash = normalized_refs.get(
+            "speechCleanlinessReportHash"
+        )
+        if declared_report_hash not in (None, exact_report_hash):
+            raise ArtifactBindingError(
+                "speech-cleanliness evidence reference is stale"
+            )
+        normalized_refs["speechCleanlinessReportHash"] = exact_report_hash
+        normalized_refs = dict(sorted(normalized_refs.items()))
+
+    _verify_rejection_speech_cleanliness_evidence(
+        dataset=dataset,
+        candidate=candidate,
+        evidence_refs=normalized_refs,
+        speech_cleanliness_report=speech_cleanliness_report,
+    )
+    normalized_rank = _normalized_optional_rank(rejected_rank, candidate)
+    payload = {
+        "schemaVersion": 1,
+        "artifactType": HUMAN_REJECTION_ARTIFACT_TYPE,
+        "rejectionVersion": HUMAN_REJECTION_VERSION,
+        "decision": "rejected",
+        "labelSemantics": HUMAN_REJECTION_SEMANTICS,
+        "datasetId": dataset["datasetId"],
+        "datasetHash": dataset["contentHash"],
+        "rankingManifestHash": dataset["rankingManifestHash"],
+        "rankingSchemaVersion": dataset["rankingSchemaVersion"],
+        "sourceId": dataset["sourceId"],
+        "sourceHash": dataset["sourceHash"],
+        "replayTranscriptManifestHash": dataset[
+            "replayTranscriptManifestHash"
+        ],
+        "transcriptHash": dataset["transcriptHash"],
+        "transcriptTimingHash": dataset["transcriptTimingHash"],
+        "candidateHash": str(candidate["candidate_hash"]),
+        "candidateRecordHash": content_hash(candidate),
+        "candidateIndex": candidate_index,
+        "reviewer": normalized_reviewer,
+        "decidedAt": normalized_decided_at,
+        "reasonCodes": normalized_reasons,
+        "notes": str(notes or "").strip(),
+    }
+    if normalized_rank is not None:
+        payload["rejectedRank"] = normalized_rank
+    if normalized_refs:
+        payload["evidenceRefs"] = normalized_refs
+    return _seal(payload)
+
+
+def verify_replay_human_rejection(
+    artifact: Dict,
+    dataset_artifact: Dict,
+    *,
+    speech_cleanliness_report: Dict | None = None,
+) -> Dict:
+    """Verify a human rejection and all of its replay provenance bindings."""
+
+    rejection = verify_seal(artifact, HUMAN_REJECTION_ARTIFACT_TYPE)
+    rejection = _strict_snapshot(rejection, "human rejection")
+    if not isinstance(rejection, dict):
+        raise ArtifactBindingError("human rejection must be an object")
+    verify_seal(rejection, HUMAN_REJECTION_ARTIFACT_TYPE)
+    dataset = verify_replay_capture_dataset(dataset_artifact)
+    if (
+        rejection.get("schemaVersion") != 1
+        or rejection.get("rejectionVersion") != HUMAN_REJECTION_VERSION
+    ):
+        raise ArtifactBindingError("unsupported human rejection schema")
+    if (
+        rejection.get("decision") != "rejected"
+        or rejection.get("labelSemantics") != HUMAN_REJECTION_SEMANTICS
+    ):
+        raise ArtifactBindingError("artifact is not an explicit human rejection")
+
+    expected_dataset_bindings = {
+        "datasetId": dataset["datasetId"],
+        "datasetHash": dataset["contentHash"],
+        "rankingManifestHash": dataset["rankingManifestHash"],
+        "rankingSchemaVersion": dataset["rankingSchemaVersion"],
+        "sourceId": dataset["sourceId"],
+        "sourceHash": dataset["sourceHash"],
+        "replayTranscriptManifestHash": dataset[
+            "replayTranscriptManifestHash"
+        ],
+        "transcriptHash": dataset["transcriptHash"],
+        "transcriptTimingHash": dataset["transcriptTimingHash"],
+    }
+    for field, expected in expected_dataset_bindings.items():
+        if rejection.get(field) != expected:
+            raise ArtifactBindingError(
+                f"human rejection {field} binding is stale"
+            )
+
+    candidate, candidate_index = _rejection_candidate(
+        dataset,
+        rejection.get("candidateHash"),
+    )
+    expected_candidate_bindings = {
+        "candidateHash": candidate["candidate_hash"],
+        "candidateRecordHash": content_hash(candidate),
+        "candidateIndex": candidate_index,
+    }
+    for field, expected in expected_candidate_bindings.items():
+        if rejection.get(field) != expected:
+            raise ArtifactBindingError(
+                f"human rejection {field} binding is stale"
+            )
+
+    normalized_rank = _normalized_optional_rank(
+        rejection.get("rejectedRank")
+        if "rejectedRank" in rejection
+        else None,
+        candidate,
+    )
+    normalized_reasons = _normalized_reason_codes(rejection.get("reasonCodes"))
+    if rejection.get("reasonCodes") != normalized_reasons:
+        raise ArtifactBindingError("human rejection reasonCodes are not canonical")
+    normalized_refs = _normalized_evidence_refs(
+        rejection.get("evidenceRefs")
+        if "evidenceRefs" in rejection
+        else None
+    )
+    if (
+        "evidenceRefs" in rejection
+        and rejection.get("evidenceRefs") != normalized_refs
+    ):
+        raise ArtifactBindingError("human rejection evidenceRefs are not canonical")
+    reviewer = str(rejection.get("reviewer") or "").strip()
+    decided_at = str(rejection.get("decidedAt") or "").strip()
+    notes = str(rejection.get("notes") or "").strip()
+    if (
+        not reviewer
+        or not decided_at
+        or rejection.get("reviewer") != reviewer
+        or rejection.get("decidedAt") != decided_at
+        or rejection.get("notes") != notes
+    ):
+        raise ArtifactBindingError("human rejection review fields are not canonical")
+
+    _verify_rejection_speech_cleanliness_evidence(
+        dataset=dataset,
+        candidate=candidate,
+        evidence_refs=normalized_refs,
+        speech_cleanliness_report=speech_cleanliness_report,
+    )
+
+    required_fields = {
+        "schemaVersion",
+        "artifactType",
+        "rejectionVersion",
+        "decision",
+        "labelSemantics",
+        *expected_dataset_bindings.keys(),
+        *expected_candidate_bindings.keys(),
+        "reviewer",
+        "decidedAt",
+        "reasonCodes",
+        "notes",
+        "contentHash",
+    }
+    if normalized_rank is not None:
+        required_fields.add("rejectedRank")
+    if normalized_refs:
+        required_fields.add("evidenceRefs")
+    if set(rejection) != required_fields:
+        raise ArtifactBindingError("human rejection body is not canonical")
+    return rejection
+
+
 def _decision_candidate_hash(decision: Mapping[str, object]) -> str:
     source_hash = _sha256(decision.get("sourceHash"), "sourceHash")
     candidate = decision.get("candidate")
@@ -509,6 +918,60 @@ def archive_approved_candidate(
         "labelPath": str(label_path.resolve()),
         "datasetCreated": dataset_created,
         "labelCreated": label_created,
+    }
+
+
+def archive_rejected_candidate(
+    ranking_manifest: Dict,
+    candidate_hash_value: str,
+    *,
+    reviewer: str,
+    decided_at: str,
+    reason_codes: Sequence[str],
+    evidence_dir: str | Path,
+    rejected_rank: int | None = None,
+    notes: str = "",
+    evidence_refs: Mapping[str, object] | None = None,
+    speech_cleanliness_report: Dict | None = None,
+) -> Dict:
+    """Persist a dataset and one append-only explicit human rejection."""
+
+    dataset = build_replay_capture_dataset(ranking_manifest)
+    rejection = build_replay_human_rejection(
+        dataset,
+        candidate_hash_value,
+        reviewer=reviewer,
+        decided_at=decided_at,
+        reason_codes=reason_codes,
+        rejected_rank=rejected_rank,
+        notes=notes,
+        evidence_refs=evidence_refs,
+        speech_cleanliness_report=speech_cleanliness_report,
+    )
+    verify_replay_human_rejection(
+        rejection,
+        dataset,
+        speech_cleanliness_report=speech_cleanliness_report,
+    )
+    root = Path(evidence_dir).expanduser()
+    dataset_path = root / "datasets" / f"{dataset['rankingManifestHash']}.json"
+    rejection_path = (
+        root
+        / "negative-labels"
+        / dataset["rankingManifestHash"]
+        / f"{rejection['contentHash']}.json"
+    )
+    dataset_created = write_immutable_json(dataset_path, dataset)
+    rejection_created = write_immutable_json(rejection_path, rejection)
+    return {
+        "schemaVersion": 1,
+        "artifactType": HUMAN_REJECTION_RECEIPT_TYPE,
+        "datasetHash": dataset["contentHash"],
+        "rejectionHash": rejection["contentHash"],
+        "datasetPath": str(dataset_path.resolve()),
+        "rejectionPath": str(rejection_path.resolve()),
+        "datasetCreated": dataset_created,
+        "rejectionCreated": rejection_created,
     }
 
 

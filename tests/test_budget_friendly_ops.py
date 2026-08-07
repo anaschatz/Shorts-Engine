@@ -27,6 +27,7 @@ from shorts_generator.publisher import PublishReceiptStore
 from shorts_generator.replay_capture import (
     verify_replay_capture_dataset,
     verify_replay_capture_label,
+    verify_replay_human_rejection,
 )
 
 
@@ -73,6 +74,9 @@ def attach_clean_speech_report(
     transcript,
     *,
     transcript_timing_hash=None,
+    lexical_fillers=None,
+    uncovered_vocalizations=None,
+    prompted_fillers=None,
 ):
     report = evaluate_speech_cleanliness_evidence(
         source_hash=source_hash,
@@ -91,9 +95,9 @@ def attach_clean_speech_report(
             "speech_end_time",
             candidate_body["end_time"],
         ),
-        lexical_fillers=[],
-        uncovered_vocalizations=[],
-        prompted_fillers=[],
+        lexical_fillers=lexical_fillers or [],
+        uncovered_vocalizations=uncovered_vocalizations or [],
+        prompted_fillers=prompted_fillers or [],
         provider_identity={"provider": "test"},
     )
     return {
@@ -651,6 +655,473 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
         self.assertEqual(label["candidateDecision"], decision)
         self.assertEqual(label["labelSemantics"], "explicit_human_approval")
         self.assertEqual(dataset["rankingManifestHash"], ranking["contentHash"])
+
+    def test_reject_candidate_cli_archives_engine_rejected_candidate_idempotently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"rejected-source")
+            source_hash = file_sha256(str(source))
+            transcript = replay_backfill_transcript(
+                "A weak hook with a complete but uninteresting thought",
+                source_hash,
+            )
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "candidate_text": (
+                    "A weak hook with a complete but uninteresting thought"
+                ),
+                "content_profile": "motivational_podcast",
+                "selection_profile": "motivational_tension_micro_v1",
+                "render_profile": "bf_editorial_inset_v1",
+                "format_profile": "bf_viral_micro_v1",
+                "selection_rank": 1,
+                "rejected": True,
+                "rejection_reasons": ["weak_hook"],
+                "source_cut_count": 0,
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            ranking = build_ranking_manifest(
+                "https://example.test/rejected-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_VIRAL_MICRO_V1
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            ranking_path = root / "ranking.json"
+            evidence = root / "evidence"
+            receipt_path = root / "rejection-receipt.json"
+            ops.write_json(str(ranking_path), ranking)
+            args = ops.build_parser().parse_args(
+                [
+                    "reject-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:00:00Z",
+                    "--reason-code",
+                    "weak_hook, weak_hook",
+                    "--notes",
+                    "The opening does not stop the feed.",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(receipt_path),
+                ]
+            )
+
+            first_receipt = args.handler(args)
+            second_receipt = args.handler(args)
+            dataset = verify_replay_capture_dataset(
+                ops.read_json(first_receipt["datasetPath"])
+            )
+            rejection = verify_replay_human_rejection(
+                ops.read_json(first_receipt["rejectionPath"]),
+                dataset,
+            )
+            positive_label_dir_exists = (evidence / "labels").exists()
+
+        self.assertEqual(first_receipt, second_receipt)
+        self.assertEqual(
+            first_receipt["artifactType"],
+            "BudgetFriendlyReplayHumanRejectionReceiptV1",
+        )
+        self.assertEqual(rejection["decision"], "rejected")
+        self.assertEqual(
+            rejection["labelSemantics"],
+            "explicit_human_rejection",
+        )
+        self.assertEqual(rejection["candidateHash"], candidate["candidate_hash"])
+        self.assertEqual(rejection["reasonCodes"], ["weak_hook"])
+        self.assertEqual(rejection["rejectedRank"], 1)
+        self.assertFalse(positive_label_dir_exists)
+
+    def test_reject_candidate_output_collision_precedes_archive_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"collision-source")
+            source_hash = file_sha256(str(source))
+            text = "A complete candidate that the reviewer rejected"
+            transcript = replay_backfill_transcript(text, source_hash)
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "candidate_text": text,
+                "content_profile": "motivational_podcast",
+                "selection_profile": "motivational_tension_micro_v1",
+                "render_profile": "bf_editorial_inset_v1",
+                "format_profile": "bf_viral_micro_v1",
+                "selection_rank": 1,
+                "rejected": True,
+                "rejection_reasons": ["weak_hook"],
+                "source_cut_count": 0,
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            ranking = build_ranking_manifest(
+                "https://example.test/collision-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_VIRAL_MICRO_V1
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            ranking_path = root / "ranking.json"
+            evidence = root / "evidence"
+            receipt_path = root / "rejection-receipt.json"
+            ops.write_json(str(ranking_path), ranking)
+            collision = {
+                "schemaVersion": 1,
+                "artifactType": (
+                    "BudgetFriendlyReplayHumanRejectionReceiptV1"
+                ),
+                "datasetHash": "a" * 64,
+                "rejectionHash": "b" * 64,
+                "datasetPath": "/collision/dataset.json",
+                "rejectionPath": "/collision/rejection.json",
+                "datasetCreated": False,
+                "rejectionCreated": False,
+            }
+            ops.write_json(str(receipt_path), collision)
+            args = ops.build_parser().parse_args(
+                [
+                    "reject-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:00:00Z",
+                    "--reason-code",
+                    "weak_hook",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(receipt_path),
+                ]
+            )
+
+            with patch.object(
+                ops,
+                "archive_rejected_candidate",
+            ) as archive, self.assertRaisesRegex(
+                ArtifactBindingError,
+                "immutable rejection receipt collision",
+            ):
+                args.handler(args)
+
+            archive.assert_not_called()
+            self.assertFalse(evidence.exists())
+            self.assertEqual(ops.read_json(str(receipt_path)), collision)
+
+    def test_reject_candidate_cli_accepts_feed_stop_audio_rejection_without_authority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"feed-stop-rejection")
+            source_hash = file_sha256(str(source))
+            text = "Everybody gets a break most people waste the opportunity"
+            transcript = replay_backfill_transcript(text, source_hash)
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "speech_start_time": 0.0,
+                "speech_end_time": 11.5,
+                "candidate_text": text,
+                "content_profile": "motivational_podcast",
+                "selection_profile": "bf_feed_stop_v1",
+                "render_profile": "bf_editorial_inset_v2",
+                "format_profile": "bf_feed_stop_format_v1",
+                "selection_rank": 1,
+                "rejected": True,
+                "rejection_reasons": ["repeated_audible_fillers"],
+                "source_cut_count": 0,
+            }
+            candidate_body = attach_clean_speech_report(
+                candidate_body,
+                source_hash,
+                transcript,
+                prompted_fillers=[
+                    {"start": 2.0, "end": 2.15, "text": "uh-huh"},
+                    {"start": 5.0, "end": 5.15, "text": "ah"},
+                ],
+            )
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            ranking = build_ranking_manifest(
+                "https://example.test/feed-stop-rejection",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_FEED_STOP_FORMAT_V1
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            ranking_path = root / "ranking.json"
+            evidence = root / "evidence"
+            receipt_path = root / "rejection-receipt.json"
+            ops.write_json(str(ranking_path), ranking)
+            args = ops.build_parser().parse_args(
+                [
+                    "reject-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:00:00Z",
+                    "--reason-code",
+                    "audible_backchannels",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(receipt_path),
+                ]
+            )
+
+            with patch.object(ops, "build_candidate_decision") as authority:
+                receipt = args.handler(args)
+            authority.assert_not_called()
+            dataset = verify_replay_capture_dataset(
+                ops.read_json(receipt["datasetPath"])
+            )
+            rejection = verify_replay_human_rejection(
+                ops.read_json(receipt["rejectionPath"]),
+                dataset,
+                speech_cleanliness_report=candidate[
+                    "speechCleanlinessReport"
+                ],
+            )
+
+        self.assertEqual(rejection["candidateHash"], candidate["candidate_hash"])
+        self.assertEqual(rejection["reasonCodes"], ["audible_backchannels"])
+        self.assertEqual(
+            rejection["evidenceRefs"]["speechCleanlinessReportHash"],
+            candidate["speechCleanlinessReport"]["contentHash"],
+        )
+        self.assertEqual(rejection["artifactType"], "BudgetFriendlyReplayHumanRejectionV1")
+
+    def test_reject_candidate_cli_fails_closed_before_writing_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"feed-stop-missing-audio-evidence")
+            source_hash = file_sha256(str(source))
+            text = "Approval is a trap choose your own standard instead"
+            transcript = replay_backfill_transcript(text, source_hash)
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "speech_start_time": 0.0,
+                "speech_end_time": 11.5,
+                "candidate_text": text,
+                "content_profile": "motivational_podcast",
+                "selection_profile": "bf_feed_stop_v1",
+                "render_profile": "bf_editorial_inset_v2",
+                "format_profile": "bf_feed_stop_format_v1",
+                "selection_rank": 1,
+                "rejected": True,
+                "rejection_reasons": ["speech_cleanliness_evidence_missing"],
+                "source_cut_count": 0,
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            ranking = build_ranking_manifest(
+                "https://example.test/feed-stop-missing-evidence",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_FEED_STOP_FORMAT_V1
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            ranking_path = root / "ranking.json"
+            evidence = root / "evidence"
+            receipt_path = root / "receipt.json"
+            ops.write_json(str(ranking_path), ranking)
+            args = ops.build_parser().parse_args(
+                [
+                    "reject-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:00:00Z",
+                    "--reason-code",
+                    "audible_backchannels",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(receipt_path),
+                ]
+            )
+
+            with self.assertRaisesRegex(
+                ArtifactBindingError,
+                "lacks a speech-cleanliness report",
+            ):
+                args.handler(args)
+
+            self.assertFalse(evidence.exists())
+            self.assertFalse(receipt_path.exists())
+
+    def test_rejection_candidate_resolution_rejects_stale_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"bound-source")
+            other_source = root / "other.mp4"
+            other_source.write_bytes(b"other-source")
+            source_hash = file_sha256(str(source))
+            text = "One exact candidate with a complete thought"
+            transcript = replay_backfill_transcript(text, source_hash)
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "candidate_text": text,
+                "content_profile": "motivational_podcast",
+                "selection_profile": "motivational_tension_micro_v1",
+                "render_profile": "bf_editorial_inset_v1",
+                "format_profile": "bf_viral_micro_v1",
+                "selection_rank": 1,
+                "rejected": True,
+                "rejection_reasons": ["weak_hook"],
+                "source_cut_count": 0,
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            valid_ranking = build_ranking_manifest(
+                "https://example.test/bound-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_VIRAL_MICRO_V1
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            stale_candidate = {
+                **candidate,
+                "candidate_hash": "f" * 64,
+            }
+            stale_hash_ranking = build_ranking_manifest(
+                "https://example.test/bound-source",
+                str(source),
+                "motivational_podcast",
+                [stale_candidate],
+                [],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_VIRAL_MICRO_V1
+                ),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            missing_transcript_ranking = build_ranking_manifest(
+                "https://example.test/bound-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_VIRAL_MICRO_V1
+                ),
+                source_hash=source_hash,
+            )
+            unapproved_profile_ranking = build_ranking_manifest(
+                "https://example.test/bound-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(format_profile=BF_GROWTH_V2),
+                source_hash=source_hash,
+                transcript=transcript,
+            )
+            cases = (
+                (
+                    "wrong-source",
+                    valid_ranking,
+                    other_source,
+                    "not bound to the supplied source",
+                ),
+                (
+                    "stale-candidate",
+                    stale_hash_ranking,
+                    source,
+                    "candidate hash is stale",
+                ),
+                (
+                    "missing-transcript",
+                    missing_transcript_ranking,
+                    source,
+                    "lacks a replay transcript manifest",
+                ),
+                (
+                    "unapproved-profile",
+                    unapproved_profile_ranking,
+                    source,
+                    "does not freeze an approved review profile",
+                ),
+            )
+            for name, ranking, supplied_source, message in cases:
+                with self.subTest(name=name):
+                    ranking_path = root / f"{name}.json"
+                    ops.write_json(str(ranking_path), ranking)
+                    with self.assertRaisesRegex(ArtifactBindingError, message):
+                        ops.rejection_candidate_from_file(
+                            str(ranking_path),
+                            1,
+                            str(supplied_source),
+                        )
 
     def test_feed_stop_candidate_from_file_binds_cleanliness_to_replay_transcript(self):
         with tempfile.TemporaryDirectory() as directory:

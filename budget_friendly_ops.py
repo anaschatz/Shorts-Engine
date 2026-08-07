@@ -52,9 +52,15 @@ from shorts_generator.profiles import (
     resolve_profile_bundle,
 )
 from shorts_generator.replay_capture import (
+    HUMAN_REJECTION_RECEIPT_TYPE,
     archive_approved_candidate,
+    archive_rejected_candidate,
+    build_replay_human_rejection,
     build_replay_capture_dataset,
     write_immutable_json,
+)
+from shorts_generator.speech_cleanliness import (
+    verify_speech_cleanliness_report,
 )
 from shorts_generator.publisher import (
     PublishReceiptStore,
@@ -113,14 +119,17 @@ def finish_performance_report(telemetry: PerformanceTelemetry) -> dict:
     return payload
 
 
-def candidate_from_file(
+def _review_candidate_from_file(
     path: str,
     rank: int | None,
     source_path: str,
-) -> tuple[dict, dict, str]:
+    *,
+    require_eligible: bool,
+    require_replay_transcript: bool,
+) -> tuple[dict, dict, str, dict | None, dict | None]:
     ranking = verify_seal(read_json(path), "RankingManifest")
     if rank is None:
-        raise ValueError("--rank is required when approving from ranking.json")
+        raise ValueError("--rank is required when reviewing from ranking.json")
     source_hash = file_sha256(source_path)
     if ranking.get("sourceHash") != source_hash:
         raise ArtifactBindingError("ranking manifest is not bound to the supplied source")
@@ -158,7 +167,10 @@ def candidate_from_file(
     if len(matches) != 1:
         raise ValueError(f"Candidate rank {rank} did not resolve exactly once")
     candidate = matches[0]
-    if candidate.get("rejected") is not False or candidate.get("rejection_reasons"):
+    if require_eligible and (
+        candidate.get("rejected") is not False
+        or candidate.get("rejection_reasons")
+    ):
         raise ArtifactBindingError("only an eligible non-rejected ranking candidate can be approved")
     expected_candidate_profiles = dict(
         zip(CANDIDATE_PROFILE_FIELDS, expected_profile_tuple)
@@ -166,28 +178,132 @@ def candidate_from_file(
     for field, expected in expected_candidate_profiles.items():
         if str(candidate.get(field) or "").strip().lower() != expected:
             raise ArtifactBindingError(f"ranking candidate {field} is incompatible")
-    if expected_profile_tuple == FEED_STOP_REPLAY_PROFILE_TUPLE:
-        transcript_manifest = ranking.get("replayTranscriptManifest")
+    transcript_manifest = ranking.get("replayTranscriptManifest")
+    verified_transcript_manifest = None
+    if require_replay_transcript or expected_profile_tuple == FEED_STOP_REPLAY_PROFILE_TUPLE:
         if not isinstance(transcript_manifest, dict):
-            raise ArtifactBindingError(
-                "feed-stop ranking lacks a replay transcript manifest"
-            )
+            raise ArtifactBindingError("ranking lacks a replay transcript manifest")
         verified_transcript_manifest = verify_replay_transcript_manifest(
             transcript_manifest,
             source_hash=source_hash,
             require_timed_words=True,
         )
-        _verify_feed_stop_speech_cleanliness(
-            candidate,
-            source_hash,
-            transcript_timing_hash=verified_transcript_manifest[
-                "transcriptTimingHash"
-            ],
-        )
     declared_candidate_hash = str(candidate.get("candidate_hash") or "").strip().lower()
     if declared_candidate_hash != candidate_hash(candidate, source_hash):
         raise ArtifactBindingError("ranking candidate hash is stale")
+    verified_speech_report = None
+    if expected_profile_tuple == FEED_STOP_REPLAY_PROFILE_TUPLE:
+        if verified_transcript_manifest is None:
+            raise ArtifactBindingError(
+                "feed-stop ranking lacks a replay transcript manifest"
+            )
+        if require_eligible:
+            verified_speech_report = _verify_feed_stop_speech_cleanliness(
+                candidate,
+                source_hash,
+                transcript_timing_hash=verified_transcript_manifest[
+                    "transcriptTimingHash"
+                ],
+            )
+        else:
+            verified_speech_report = _verify_rejection_speech_cleanliness(
+                candidate,
+                source_hash,
+                transcript_timing_hash=verified_transcript_manifest[
+                    "transcriptTimingHash"
+                ],
+            )
+    return (
+        ranking,
+        candidate,
+        source_hash,
+        verified_transcript_manifest,
+        verified_speech_report,
+    )
+
+
+def _verify_rejection_speech_cleanliness(
+    candidate: dict,
+    source_hash: str,
+    *,
+    transcript_timing_hash: str,
+) -> dict:
+    """Verify feed-stop audio evidence without requiring an eligible result."""
+
+    report = candidate.get("speechCleanlinessReport")
+    if not isinstance(report, dict):
+        raise ArtifactBindingError(
+            "feed-stop candidate lacks a speech-cleanliness report"
+        )
+    verified = verify_speech_cleanliness_report(
+        report,
+        source_hash=source_hash,
+        transcript_timing_hash=transcript_timing_hash,
+        speech_interval=(
+            candidate.get("speech_start_time", candidate.get("start_time")),
+            candidate.get("speech_end_time", candidate.get("end_time")),
+        ),
+        require_pass=False,
+    )
+    aliases = {
+        "speechCleanlinessStatus": verified["status"],
+        "speechCleanlinessEligible": verified["eligible"],
+        "speechCleanlinessRejectionReasons": verified["rejectionReasons"],
+        "speechCleanlinessReviewReasons": verified["reviewReasons"],
+        "speech_cleanliness_status": verified["status"],
+        "speech_cleanliness_eligible": verified["eligible"],
+        "speech_cleanliness_decision_version": verified["decisionVersion"],
+        "speech_cleanliness_reject_reasons": verified["rejectionReasons"],
+        "speech_cleanliness_review_reasons": verified["reviewReasons"],
+        "speech_cleanliness_deterministic_reasons": verified[
+            "deterministicReasons"
+        ],
+        "speech_cleanliness_provider_status": verified["providerStatus"],
+        "speech_cleanliness_lexical_filler_count": verified[
+            "lexicalFillerCount"
+        ],
+        "speech_cleanliness_uncovered_vocalization_count": verified[
+            "uncoveredVocalizationCount"
+        ],
+        "speech_cleanliness_prompted_filler_count": verified[
+            "promptedFillerCount"
+        ],
+    }
+    if any(candidate.get(field) != expected for field, expected in aliases.items()):
+        raise ArtifactBindingError(
+            "speech-cleanliness candidate aliases do not match the sealed report"
+        )
+    return verified
+
+
+def candidate_from_file(
+    path: str,
+    rank: int | None,
+    source_path: str,
+) -> tuple[dict, dict, str]:
+    ranking, candidate, source_hash, _, _ = _review_candidate_from_file(
+        path,
+        rank,
+        source_path,
+        require_eligible=True,
+        require_replay_transcript=False,
+    )
     return ranking, candidate, source_hash
+
+
+def rejection_candidate_from_file(
+    path: str,
+    rank: int | None,
+    source_path: str,
+) -> tuple[dict, dict, str, dict | None]:
+    ranking, candidate, source_hash, _, speech_report = _review_candidate_from_file(
+        path,
+        rank,
+        source_path,
+        require_eligible=False,
+        require_replay_transcript=True,
+    )
+    return ranking, candidate, source_hash, speech_report
 
 
 def _normalize_backfill_text(value: object) -> str:
@@ -376,6 +492,162 @@ def command_approve(args) -> dict:
     )
     write_json(args.output, decision)
     return decision
+
+
+def _rejection_reason_codes(raw_values: list[str]) -> list[str]:
+    reason_codes = []
+    for raw_value in raw_values:
+        for value in str(raw_value or "").split(","):
+            normalized = value.strip()
+            if normalized and normalized not in reason_codes:
+                reason_codes.append(normalized)
+    if not reason_codes:
+        raise ValueError("at least one non-empty --reason-code is required")
+    return reason_codes
+
+
+def _existing_rejection_receipt(path: Path, receipt: dict) -> dict | None:
+    """Validate a prior receipt against a pure, expected receipt identity."""
+
+    if not path.exists():
+        return None
+    operational_fields = {"datasetCreated", "rejectionCreated"}
+    receipt_identity = {
+        key: value for key, value in receipt.items() if key not in operational_fields
+    }
+    existing = read_json(str(path))
+    if (
+        set(existing) != set(receipt)
+        or any(
+            type(existing.get(field)) is not bool
+            for field in operational_fields
+        )
+    ):
+        raise ArtifactBindingError(
+            f"immutable rejection receipt collision at {path}"
+        )
+    existing_identity = {
+        key: value
+        for key, value in existing.items()
+        if key not in operational_fields
+    }
+    if existing_identity != receipt_identity:
+        raise ArtifactBindingError(
+            f"immutable rejection receipt collision at {path}"
+        )
+    return existing
+
+
+def _write_idempotent_rejection_receipt(path: Path, receipt: dict) -> dict:
+    """Keep a stable operator receipt across an identical archive retry."""
+
+    existing = _existing_rejection_receipt(path, receipt)
+    if existing is not None:
+        return existing
+    try:
+        write_immutable_json(path, receipt)
+    except ArtifactBindingError:
+        existing = _existing_rejection_receipt(path, receipt)
+        if existing is not None:
+            return existing
+        raise
+    return receipt
+
+
+def _expected_rejection_receipt(
+    ranking: dict,
+    candidate: dict,
+    *,
+    reviewer: str,
+    decided_at: str,
+    reason_codes: list[str],
+    rejected_rank: int,
+    notes: str,
+    evidence_root: Path,
+    speech_report: dict | None,
+) -> dict:
+    """Build the archive receipt identity without touching durable storage."""
+
+    dataset = build_replay_capture_dataset(ranking)
+    rejection = build_replay_human_rejection(
+        dataset,
+        candidate["candidate_hash"],
+        reviewer=reviewer,
+        decided_at=decided_at,
+        reason_codes=reason_codes,
+        rejected_rank=rejected_rank,
+        notes=notes,
+        speech_cleanliness_report=speech_report,
+    )
+    ranking_hash = dataset["rankingManifestHash"]
+    return {
+        "schemaVersion": 1,
+        "artifactType": HUMAN_REJECTION_RECEIPT_TYPE,
+        "datasetHash": dataset["contentHash"],
+        "rejectionHash": rejection["contentHash"],
+        "datasetPath": str(
+            (evidence_root / "datasets" / f"{ranking_hash}.json").resolve()
+        ),
+        "rejectionPath": str(
+            (
+                evidence_root
+                / "negative-labels"
+                / ranking_hash
+                / f"{rejection['contentHash']}.json"
+            ).resolve()
+        ),
+        # These are operation results, not identity. Their boolean shape is
+        # still validated on a pre-existing receipt.
+        "datasetCreated": False,
+        "rejectionCreated": False,
+    }
+
+
+def command_reject(args) -> dict:
+    """Archive an explicit negative label without creating production authority."""
+
+    evidence_root = Path(args.evidence_dir).expanduser().resolve()
+    receipt_output = Path(args.output).expanduser().resolve()
+    try:
+        receipt_output.relative_to(evidence_root)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(
+            "--output must be outside the append-only Autoresearch evidence root"
+        )
+    ranking, candidate, _, speech_report = rejection_candidate_from_file(
+        args.candidate_json,
+        args.rank,
+        args.source,
+    )
+    reason_codes = _rejection_reason_codes(args.reason_code)
+    expected_receipt = _expected_rejection_receipt(
+        ranking,
+        candidate,
+        reviewer=args.reviewer,
+        decided_at=args.decided_at,
+        reason_codes=reason_codes,
+        rejected_rank=args.rank,
+        notes=args.notes,
+        evidence_root=evidence_root,
+        speech_report=speech_report,
+    )
+    # A collision is rejected before the append-only archive can create a
+    # dataset or negative label. An identical prior receipt is safe to retry.
+    _existing_rejection_receipt(receipt_output, expected_receipt)
+    receipt = archive_rejected_candidate(
+        ranking,
+        candidate["candidate_hash"],
+        reviewer=args.reviewer,
+        decided_at=args.decided_at,
+        reason_codes=reason_codes,
+        rejected_rank=args.rank,
+        notes=args.notes,
+        evidence_dir=evidence_root,
+        speech_cleanliness_report=speech_report,
+    )
+    return _write_idempotent_rejection_receipt(receipt_output, receipt)
 
 
 def command_experiment(args) -> dict:
@@ -686,6 +958,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     approve.add_argument("--output", required=True)
     approve.set_defaults(handler=command_approve)
+
+    reject = sub.add_parser("reject-candidate")
+    reject.add_argument("--candidate-json", required=True)
+    reject.add_argument("--rank", type=int, required=True)
+    reject.add_argument("--source", required=True)
+    reject.add_argument("--reviewer", required=True)
+    reject.add_argument("--decided-at", required=True)
+    reject.add_argument(
+        "--reason-code",
+        action="append",
+        required=True,
+        help=(
+            "Canonical human rejection code. Repeat the flag or supply a "
+            "comma-separated list."
+        ),
+    )
+    reject.add_argument("--notes", default="")
+    reject.add_argument(
+        "--evidence-dir",
+        default=LOCAL_AUTORESEARCH_EVIDENCE_DIR,
+        help=(
+            "Durable append-only Autoresearch rejection evidence root "
+            "(separate from output and caches)."
+        ),
+    )
+    reject.add_argument("--output", required=True)
+    reject.set_defaults(handler=command_reject)
 
     experiment = sub.add_parser("declare-experiment")
     experiment.add_argument("--candidate-decision", required=True)

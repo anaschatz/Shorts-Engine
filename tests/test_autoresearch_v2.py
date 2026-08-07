@@ -19,10 +19,18 @@ from research.autoresearch_v2 import (
     workspace_source_fingerprints,
     _offline_evaluation_boundary,
 )
-from research.fixture_pack_v2 import build_fixture_pack
+from research.fixture_pack_v2 import (
+    assess_capture_data_readiness,
+    build_fixture_pack,
+    build_fixture_pack_from_captures,
+)
 from research.historical_replay_integrity_v2 import inspect_historical_replay
 from research.offline_test_runner import ExcludingTestLoader, offline_network_boundary
 from research.runner_v2 import _compare_evidence, _experiment_id, execute
+from shorts_generator.replay_capture import (
+    HUMAN_REJECTION_ARTIFACT_TYPE,
+    LABEL_ARTIFACT_TYPE,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -148,6 +156,73 @@ def write_source_fixture(root):
     manifest_path = root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return manifest, manifest_path
+
+
+def capture_dataset_fixture(*, candidate_hashes=("e" * 64,)):
+    return {
+        "artifactType": "BudgetFriendlyReplayCaptureDatasetV2",
+        "datasetId": "d" * 64,
+        "contentHash": "a" * 64,
+        "rankingManifestHash": "b" * 64,
+        "sourceId": "youtube:negative-fixture",
+        "sourceHash": "c" * 64,
+        "candidates": [
+            {"candidate_hash": candidate_hash_value}
+            for candidate_hash_value in candidate_hashes
+        ],
+        "replayTranscriptManifest": {"transcript": transcript()},
+        "replayTranscriptManifestHash": "1" * 64,
+        "transcriptHash": "2" * 64,
+        "transcriptTimingHash": "3" * 64,
+        "engineSelectedCandidateHashes": list(candidate_hashes[:1]),
+        "engineSelectionSemantics": "unknown_not_human_label",
+    }
+
+
+def capture_approval_fixture(dataset, *, candidate_hash_value="e" * 64):
+    return {
+        "artifactType": LABEL_ARTIFACT_TYPE,
+        "datasetHash": dataset["contentHash"],
+        "candidateHash": candidate_hash_value,
+        "contentHash": "4" * 64,
+    }
+
+
+def capture_rejection_fixture(
+    dataset,
+    *,
+    candidate_hash_value="e" * 64,
+    content_hash_value="5" * 64,
+):
+    return {
+        "artifactType": HUMAN_REJECTION_ARTIFACT_TYPE,
+        "datasetHash": dataset["contentHash"],
+        "candidateHash": candidate_hash_value,
+        "contentHash": content_hash_value,
+    }
+
+
+def write_capture_fixture(capture_dir, dataset, approvals=(), rejections=()):
+    dataset_dir = capture_dir / "datasets"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "dataset.json").write_text(
+        json.dumps(dataset),
+        encoding="utf-8",
+    )
+    for index, approval in enumerate(approvals):
+        path = capture_dir / "labels" / dataset["rankingManifestHash"]
+        path.mkdir(parents=True, exist_ok=True)
+        (path / f"approval-{index}.json").write_text(
+            json.dumps(approval),
+            encoding="utf-8",
+        )
+    for index, rejection in enumerate(rejections):
+        path = capture_dir / "negative-labels" / dataset["rankingManifestHash"]
+        path.mkdir(parents=True, exist_ok=True)
+        (path / f"rejection-{index}.json").write_text(
+            json.dumps(rejection),
+            encoding="utf-8",
+        )
 
 
 class AutoresearchEvaluationV2Tests(unittest.TestCase):
@@ -339,6 +414,218 @@ class FixturePackV2Tests(unittest.TestCase):
         )
         verify_local_seal(corpus, "BudgetFriendlyReplayCorpusV2")
         verify_local_seal(labels, "BudgetFriendlyReplayLabelsV2")
+
+    def test_negative_only_capture_is_verified_but_never_promotable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            dataset = capture_dataset_fixture()
+            rejection = capture_rejection_fixture(dataset)
+            write_capture_fixture(
+                capture_dir,
+                dataset,
+                rejections=[rejection],
+            )
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_rejection",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ) as rejection_verifier:
+                report = assess_capture_data_readiness(
+                    capture_dir,
+                    contract("unused.json"),
+                )
+
+        rejection_verifier.assert_called_once()
+        self.assertEqual(
+            rejection_verifier.call_args.args[1]["contentHash"],
+            dataset["contentHash"],
+        )
+        self.assertEqual(report["datasetArtifactCount"], 1)
+        self.assertEqual(report["labelArtifactCount"], 0)
+        self.assertEqual(report["negativeLabelArtifactCount"], 1)
+        self.assertEqual(report["explicitHumanRejectionCount"], 1)
+        self.assertEqual(report["rejectedCandidateCount"], 1)
+        self.assertEqual(report["approvalEventCount"], 0)
+        self.assertEqual(report["humanPositiveCount"], 0)
+        self.assertEqual(report["sourceCount"], 0)
+        self.assertEqual(report["candidateCount"], 0)
+        self.assertEqual(report["promotableDatasetCount"], 0)
+        self.assertEqual(report["skippedOrphanDatasetCount"], 1)
+        self.assertFalse(report["replayable"])
+        self.assertFalse(report["activationReady"])
+        verify_local_seal(
+            report,
+            "BudgetFriendlyAutoresearchCaptureReadiness",
+        )
+
+    def test_rejection_diagnostics_deduplicate_events_and_do_not_change_positives(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            dataset = capture_dataset_fixture(
+                candidate_hashes=("e" * 64, "f" * 64),
+            )
+            approval = capture_approval_fixture(dataset)
+            first = capture_rejection_fixture(
+                dataset,
+                candidate_hash_value="f" * 64,
+            )
+            duplicate = copy.deepcopy(first)
+            repeated_candidate = capture_rejection_fixture(
+                dataset,
+                candidate_hash_value="f" * 64,
+                content_hash_value="6" * 64,
+            )
+            write_capture_fixture(
+                capture_dir,
+                dataset,
+                approvals=[approval],
+                rejections=[first, duplicate, repeated_candidate],
+            )
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_capture_label",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_rejection",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ):
+                report = assess_capture_data_readiness(
+                    capture_dir,
+                    contract("unused.json"),
+                )
+
+        self.assertEqual(report["negativeLabelArtifactCount"], 3)
+        self.assertEqual(report["explicitHumanRejectionCount"], 2)
+        self.assertEqual(report["rejectedCandidateCount"], 1)
+        self.assertEqual(report["labelArtifactCount"], 1)
+        self.assertEqual(report["approvalEventCount"], 1)
+        self.assertEqual(report["humanPositiveCount"], 1)
+        self.assertEqual(report["sourceCount"], 1)
+        self.assertEqual(report["candidateCount"], 2)
+        self.assertTrue(report["replayable"])
+        self.assertTrue(report["activationReady"])
+
+    def test_tampered_human_rejection_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            dataset = capture_dataset_fixture()
+            approval = capture_approval_fixture(dataset)
+            rejection = capture_rejection_fixture(dataset)
+            write_capture_fixture(
+                capture_dir,
+                dataset,
+                approvals=[approval],
+                rejections=[rejection],
+            )
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_capture_label",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_rejection",
+                side_effect=ValueError("contentHash mismatch"),
+            ):
+                report = assess_capture_data_readiness(
+                    capture_dir,
+                    contract("unused.json"),
+                )
+
+        self.assertIn("contentHash mismatch", report["integrityError"])
+        self.assertEqual(report["negativeLabelArtifactCount"], 1)
+        self.assertEqual(report["explicitHumanRejectionCount"], 0)
+        self.assertEqual(report["rejectedCandidateCount"], 0)
+        self.assertEqual(report["approvalEventCount"], 0)
+        self.assertEqual(report["humanPositiveCount"], 0)
+        self.assertEqual(report["sourceCount"], 0)
+        self.assertEqual(report["candidateCount"], 0)
+        self.assertFalse(report["replayable"])
+        self.assertFalse(report["activationReady"])
+        verify_local_seal(
+            report,
+            "BudgetFriendlyAutoresearchCaptureReadiness",
+        )
+
+    def test_same_candidate_approval_and_rejection_fails_preflight_and_pack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture_dir = root / "evidence"
+            dataset = capture_dataset_fixture()
+            approval = capture_approval_fixture(dataset)
+            rejection = capture_rejection_fixture(dataset)
+            write_capture_fixture(
+                capture_dir,
+                dataset,
+                approvals=[approval],
+                rejections=[rejection],
+            )
+            dataset_paths = list((capture_dir / "datasets").glob("*.json"))
+            label_paths = list((capture_dir / "labels").glob("*/*.json"))
+            negative_paths = list(
+                (capture_dir / "negative-labels").glob("*/*.json")
+            )
+
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_capture_label",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_rejection",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ):
+                report = assess_capture_data_readiness(
+                    capture_dir,
+                    contract("unused.json"),
+                )
+
+            output_dir = root / "pack"
+            with patch(
+                "research.fixture_pack_v2.verify_replay_capture_dataset",
+                side_effect=lambda artifact: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_capture_label",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ), patch(
+                "research.fixture_pack_v2.verify_replay_human_rejection",
+                side_effect=lambda artifact, matching_dataset: artifact,
+            ), self.assertRaisesRegex(
+                ValueError,
+                "conflicting explicit human approval and rejection",
+            ):
+                build_fixture_pack_from_captures(
+                    root=root,
+                    dataset_paths=dataset_paths,
+                    label_paths=label_paths,
+                    negative_label_paths=negative_paths,
+                    output_dir=output_dir,
+                    activation_contract=contract("unused.json"),
+                )
+
+            self.assertFalse(output_dir.exists())
+
+        self.assertIn(
+            "conflicting explicit human approval and rejection",
+            report["integrityError"],
+        )
+        self.assertEqual(report["approvalEventCount"], 0)
+        self.assertEqual(report["humanPositiveCount"], 0)
+        self.assertEqual(report["explicitHumanRejectionCount"], 0)
+        self.assertEqual(report["rejectedCandidateCount"], 0)
+        self.assertEqual(report["sourceCount"], 0)
+        self.assertEqual(report["candidateCount"], 0)
+        self.assertFalse(report["replayable"])
+        self.assertFalse(report["activationReady"])
+        verify_local_seal(
+            report,
+            "BudgetFriendlyAutoresearchCaptureReadiness",
+        )
 
 
 class AutoresearchRunnerV2Tests(unittest.TestCase):

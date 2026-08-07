@@ -31,11 +31,19 @@ from shorts_generator.profiles import BF_VIRAL_MICRO_V1, resolve_profile_bundle
 from shorts_generator.replay_capture import (
     ENGINE_SELECTION_SEMANTICS,
     HUMAN_LABEL_SEMANTICS,
+    HUMAN_REJECTION_ARTIFACT_TYPE,
+    HUMAN_REJECTION_SEMANTICS,
+    archive_rejected_candidate,
     archive_approved_candidate,
     build_replay_capture_dataset,
     build_replay_capture_label,
+    build_replay_human_rejection,
     verify_replay_capture_dataset,
     verify_replay_capture_label,
+    verify_replay_human_rejection,
+)
+from shorts_generator.speech_cleanliness import (
+    evaluate_speech_cleanliness_evidence,
 )
 
 
@@ -388,6 +396,259 @@ class ReplayCaptureTests(unittest.TestCase):
 
         self.assertEqual(len(list((evidence / "datasets").glob("*.json"))), 1)
         self.assertEqual(len(list((evidence / "labels").glob("*/*.json"))), 2)
+
+    def test_human_rejection_is_sealed_bound_and_archive_retry_is_idempotent(self):
+        dataset = build_replay_capture_dataset(self.ranking)
+        rejection = build_replay_human_rejection(
+            dataset,
+            self.candidates[0]["candidate_hash"],
+            reviewer=" operator_1 ",
+            decided_at=" 2026-08-06T12:30:00Z ",
+            reason_codes=["Weak-Hook", " audible backchannels "],
+            rejected_rank=1,
+            notes=" Repeated listener sounds distract from the point. ",
+        )
+
+        self.assertEqual(rejection["artifactType"], HUMAN_REJECTION_ARTIFACT_TYPE)
+        self.assertEqual(rejection["decision"], "rejected")
+        self.assertEqual(
+            rejection["labelSemantics"],
+            HUMAN_REJECTION_SEMANTICS,
+        )
+        self.assertEqual(
+            rejection["reasonCodes"],
+            ["audible_backchannels", "weak_hook"],
+        )
+        self.assertEqual(rejection["candidateIndex"], 0)
+        self.assertEqual(rejection["rejectedRank"], 1)
+        self.assertEqual(rejection["datasetHash"], dataset["contentHash"])
+        self.assertEqual(
+            rejection["transcriptTimingHash"],
+            dataset["transcriptTimingHash"],
+        )
+        verify_replay_human_rejection(rejection, dataset)
+
+        evidence = self.root / "negative-evidence"
+        first = archive_rejected_candidate(
+            self.ranking,
+            self.candidates[0]["candidate_hash"],
+            reviewer="operator_1",
+            decided_at="2026-08-06T12:30:00Z",
+            reason_codes=["audible_backchannels"],
+            rejected_rank=1,
+            evidence_dir=evidence,
+        )
+        second = archive_rejected_candidate(
+            self.ranking,
+            self.candidates[0]["candidate_hash"],
+            reviewer="operator_1",
+            decided_at="2026-08-06T12:30:00Z",
+            reason_codes=["audible_backchannels"],
+            rejected_rank=1,
+            evidence_dir=evidence,
+        )
+
+        self.assertTrue(first["datasetCreated"])
+        self.assertTrue(first["rejectionCreated"])
+        self.assertFalse(second["datasetCreated"])
+        self.assertFalse(second["rejectionCreated"])
+        self.assertEqual(first["rejectionHash"], second["rejectionHash"])
+        negative_paths = list(
+            (evidence / "negative-labels").glob("*/*.json")
+        )
+        self.assertEqual(len(negative_paths), 1)
+        self.assertIn(
+            self.ranking["contentHash"],
+            negative_paths[0].parts,
+        )
+        self.assertEqual(list((evidence / "labels").glob("*/*.json")), [])
+        archived = json.loads(negative_paths[0].read_text(encoding="utf-8"))
+        verify_replay_human_rejection(
+            archived,
+            build_replay_capture_dataset(self.ranking),
+        )
+        negative_paths[0].write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(
+            ArtifactBindingError,
+            "immutable capture collision",
+        ):
+            archive_rejected_candidate(
+                self.ranking,
+                self.candidates[0]["candidate_hash"],
+                reviewer="operator_1",
+                decided_at="2026-08-06T12:30:00Z",
+                reason_codes=["audible_backchannels"],
+                rejected_rank=1,
+                evidence_dir=evidence,
+            )
+
+    def test_human_rejection_binds_optional_speech_cleanliness_evidence(self):
+        base_dataset = build_replay_capture_dataset(self.ranking)
+        report = evaluate_speech_cleanliness_evidence(
+            source_hash=self.source_hash,
+            transcript_timing_hash=base_dataset["transcriptTimingHash"],
+            speech_start=0.1,
+            speech_end=10.6,
+            lexical_fillers=[],
+            uncovered_vocalizations=[
+                {"start": 2.8, "end": 3.1},
+                {"start": 4.8, "end": 5.1},
+                {"start": 7.8, "end": 8.1},
+            ],
+            prompted_fillers=[
+                {"text": "uh-huh", "start": 2.8, "end": 3.1},
+                {"text": "uh-huh", "start": 4.8, "end": 5.1},
+            ],
+            provider_identity={"provider": "fixture"},
+        )
+        dirty_body = candidate_body(
+            1,
+            0.1,
+            10.6,
+            "Pressure",
+            selected=False,
+        )
+        dirty_body["speechCleanlinessReport"] = report
+        dirty_candidate = {
+            **dirty_body,
+            "candidate_hash": candidate_hash(dirty_body, self.source_hash),
+        }
+        dirty_ranking = build_ranking_manifest(
+            "https://www.youtube.com/watch?v=fixture123",
+            str(self.source),
+            "motivational_podcast",
+            [dirty_candidate],
+            [],
+            profiles=resolve_profile_bundle(format_profile=BF_VIRAL_MICRO_V1),
+            source_hash=self.source_hash,
+            transcript=exact_transcript(),
+        )
+        dataset = build_replay_capture_dataset(dirty_ranking)
+        rejection = build_replay_human_rejection(
+            dataset,
+            dirty_candidate["candidate_hash"],
+            reviewer="operator_1",
+            decided_at="2026-08-06T12:31:00Z",
+            reason_codes=["audible_backchannels"],
+        )
+
+        self.assertEqual(
+            rejection["evidenceRefs"]["speechCleanlinessReportHash"],
+            report["contentHash"],
+        )
+        verify_replay_human_rejection(rejection, dataset)
+
+        evidence = self.root / "self-contained-negative"
+        receipt = archive_rejected_candidate(
+            dirty_ranking,
+            dirty_candidate["candidate_hash"],
+            reviewer="operator_1",
+            decided_at="2026-08-06T12:31:00Z",
+            reason_codes=["audible_backchannels"],
+            evidence_dir=evidence,
+        )
+        reloaded_dataset = json.loads(
+            Path(receipt["datasetPath"]).read_text(encoding="utf-8")
+        )
+        reloaded_rejection = json.loads(
+            Path(receipt["rejectionPath"]).read_text(encoding="utf-8")
+        )
+        verify_replay_human_rejection(reloaded_rejection, reloaded_dataset)
+
+        stale_ref = json.loads(json.dumps(rejection))
+        stale_ref["evidenceRefs"]["speechCleanlinessReportHash"] = "d" * 64
+        stale_ref["contentHash"] = content_hash(stale_ref)
+        with self.assertRaisesRegex(ArtifactBindingError, "hash binding is stale"):
+            verify_replay_human_rejection(stale_ref, dataset)
+
+        external_only_root = self.root / "external-only-negative"
+        with self.assertRaisesRegex(ArtifactBindingError, "not self-contained"):
+            archive_rejected_candidate(
+                self.ranking,
+                self.candidates[0]["candidate_hash"],
+                reviewer="operator_1",
+                decided_at="2026-08-06T12:31:00Z",
+                reason_codes=["audible_backchannels"],
+                evidence_dir=external_only_root,
+                speech_cleanliness_report=report,
+            )
+        self.assertFalse(external_only_root.exists())
+
+    def test_human_rejection_rejects_tamper_unknown_candidate_reason_and_rank(self):
+        dataset = build_replay_capture_dataset(self.ranking)
+        rejection = build_replay_human_rejection(
+            dataset,
+            self.candidates[0]["candidate_hash"],
+            reviewer="operator_1",
+            decided_at="2026-08-06T12:32:00Z",
+            reason_codes=["audible_backchannels"],
+            rejected_rank=1,
+        )
+
+        tampered = {
+            **rejection,
+            "candidateRecordHash": "d" * 64,
+        }
+        tampered["contentHash"] = content_hash(tampered)
+        with self.assertRaisesRegex(ArtifactBindingError, "candidateRecordHash"):
+            verify_replay_human_rejection(tampered, dataset)
+
+        with self.assertRaisesRegex(ArtifactBindingError, "exactly once"):
+            build_replay_human_rejection(
+                dataset,
+                "e" * 64,
+                reviewer="operator_1",
+                decided_at="2026-08-06T12:32:00Z",
+                reason_codes=["audible_backchannels"],
+            )
+        with self.assertRaisesRegex(ArtifactBindingError, "unknown human rejection"):
+            build_replay_human_rejection(
+                dataset,
+                self.candidates[0]["candidate_hash"],
+                reviewer="operator_1",
+                decided_at="2026-08-06T12:32:00Z",
+                reason_codes=["anything_goes"],
+            )
+        with self.assertRaisesRegex(ArtifactBindingError, "rejectedRank"):
+            build_replay_human_rejection(
+                dataset,
+                self.candidates[0]["candidate_hash"],
+                reviewer="operator_1",
+                decided_at="2026-08-06T12:32:00Z",
+                reason_codes=["audible_backchannels"],
+                rejected_rank=2,
+            )
+
+    def test_human_rejection_cannot_become_candidate_decision_or_positive_label(self):
+        dataset = build_replay_capture_dataset(self.ranking)
+        rejection = build_replay_human_rejection(
+            dataset,
+            self.candidates[0]["candidate_hash"],
+            reviewer="operator_1",
+            decided_at="2026-08-06T12:33:00Z",
+            reason_codes=["audible_backchannels"],
+        )
+
+        with self.assertRaisesRegex(ArtifactBindingError, "CandidateDecision"):
+            build_replay_capture_label(dataset, rejection, approved_rank=1)
+        with self.assertRaisesRegex(
+            ArtifactBindingError,
+            "BudgetFriendlyReplayCaptureLabelV2",
+        ):
+            verify_replay_capture_label(rejection, dataset)
+
+        evidence = self.root / "negative-only"
+        archive_rejected_candidate(
+            self.ranking,
+            self.candidates[0]["candidate_hash"],
+            reviewer="operator_1",
+            decided_at="2026-08-06T12:33:00Z",
+            reason_codes=["audible_backchannels"],
+            evidence_dir=evidence,
+        )
+        readiness = assess_capture_data_readiness(evidence, readiness_contract())
+        self.assertEqual(readiness["humanPositiveCount"], 0)
+        self.assertEqual(readiness["approvalEventCount"], 0)
 
     def test_capture_rejects_missing_word_timings_before_writing(self):
         ranking = json.loads(json.dumps(self.ranking))

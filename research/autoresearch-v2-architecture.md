@@ -104,6 +104,28 @@ objects under `LOCAL_AUTORESEARCH_EVIDENCE_DIR`:
 - `labels/<rankingManifestHash>/<candidateDecisionHash>.json` contains the
   exact sealed human approval and its approved rank.
 
+An explicit operator rejection is stored separately under
+`negative-labels/<rankingManifestHash>/<rejectionHash>.json`. Preflight
+discovers every such object, verifies its seal and exact dataset, source,
+transcript, candidate-record, reason-code, and optional speech-cleanliness
+bindings through the replay-capture verifier, and reports two diagnostic
+counts: `explicitHumanRejectionCount` counts distinct sealed rejection events,
+while `rejectedCandidateCount` collapses repeated events for the same exact
+candidate. A copied file with the same content hash cannot inflate either
+count. A malformed, tampered, or orphan rejection makes the inbox fail closed.
+If the same exact dataset candidate has both an explicit approval and an
+explicit rejection, the snapshot is contradictory: preflight reports an
+integrity failure and promotion refuses to create a pack. Neither event wins
+by ordering or timestamp.
+
+Rejections remain a read-only diagnostic lane in this slice. They do not count
+as `approvalEventCount` or `humanPositiveCount`, do not turn engine-selected or
+unlisted candidates into negatives, and do not make a dataset promotable. A
+dataset containing only explicit rejections therefore still reports zero
+promotable sources and candidates, is not replayable, and cannot satisfy an
+activation gate. Unlisted candidates retain the semantics `unknown`, never
+inferred rejected.
+
 The default evidence root is durable OS app data, never `output/` and never a
 cache. An identical retry is idempotent. A filename collision with different
 content, stale source/ranking/candidate binding, missing word timing, NaN,
@@ -150,6 +172,8 @@ positives, and at least 90% exact label matching. Exact capture coverage is
 inbox. Multiple approval events for one candidate do not inflate the human
 positive count. The CLI refuses to freeze an under-threshold inbox, preventing
 an incomplete immutable pack from occupying the intended output directory.
+The sealed report includes diagnostic rejection totals, but those totals are
+not inputs to any activation gate or semantic-closure metric.
 
 ```bash
 python3 research/fixture_pack_v2.py \
@@ -183,3 +207,10 @@ Editing, semantic-focus motion, Real-ESRGAN quality, runtime, and YouTube
 equal-age outcomes will be separate loops. Their metrics must not be merged
 into this selection score because that would make causal attribution
 impossible.
+
+Speech cleanliness will likewise use a separate future Autoresearch lane. Its
+corpus may use exact human rejection reason codes such as audible backchannels
+and sealed, matching `SpeechCleanlinessReport` evidence, but it must define its
+own immutable contract, evaluator, metrics, and activation thresholds. These
+negative diagnostics are not silently folded into the current
+positive-only semantic-closure objective.
