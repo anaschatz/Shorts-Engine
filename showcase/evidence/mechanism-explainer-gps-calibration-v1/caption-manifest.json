@@ -1,0 +1,623 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism_explainer_calibration_captions_v1",
+  "status": "ready",
+  "calibration": true,
+  "publishable": false,
+  "storyId": "gps_week_counter_mechanism_v1",
+  "fps": 30,
+  "durationFrames": 899,
+  "narrationText": "GPS does not send a full calendar date. Older signals stored that week number in ten bits. The range ends at 1,023. At the limit, there is no new number left. Zero is sent again when the next week begins. Old software read zero as the previous cycle. Their displayed date jumped backward. Real time kept moving forward. An update selected the correct GPS cycle. Now the receiver shows the correct date. The number repeated. Time did not.",
+  "wordCount": 78,
+  "themeId": "human_readable_purple_v1",
+  "timingMode": "frame_boundary_floor_v1",
+  "safeZone": {
+    "left": 0.08,
+    "right": 0.92,
+    "top": 0.68,
+    "bottom": 0.86,
+    "maxLines": 2
+  },
+  "cues": [
+    {
+      "id": "cue_0001",
+      "phraseId": "gps_week_not_date",
+      "startFrame": 0,
+      "endFrame": 73,
+      "lines": [
+        "GPS does not send a",
+        "full calendar date."
+      ],
+      "words": [
+        {
+          "wordIndex": 0,
+          "text": "GPS",
+          "startFrame": 0,
+          "endFrame": 7
+        },
+        {
+          "wordIndex": 1,
+          "text": "does",
+          "startFrame": 7,
+          "endFrame": 16
+        },
+        {
+          "wordIndex": 2,
+          "text": "not",
+          "startFrame": 16,
+          "endFrame": 23
+        },
+        {
+          "wordIndex": 3,
+          "text": "send",
+          "startFrame": 23,
+          "endFrame": 33
+        },
+        {
+          "wordIndex": 4,
+          "text": "a",
+          "startFrame": 33,
+          "endFrame": 36
+        },
+        {
+          "wordIndex": 5,
+          "text": "full",
+          "startFrame": 36,
+          "endFrame": 45
+        },
+        {
+          "wordIndex": 6,
+          "text": "calendar",
+          "startFrame": 45,
+          "endFrame": 63
+        },
+        {
+          "wordIndex": 7,
+          "text": "date.",
+          "startFrame": 63,
+          "endFrame": 73
+        }
+      ]
+    },
+    {
+      "id": "cue_0002",
+      "phraseId": "gps_ten_bits",
+      "startFrame": 81,
+      "endFrame": 163,
+      "lines": [
+        "Older signals stored that",
+        "week number in ten bits."
+      ],
+      "words": [
+        {
+          "wordIndex": 8,
+          "text": "Older",
+          "startFrame": 81,
+          "endFrame": 90
+        },
+        {
+          "wordIndex": 9,
+          "text": "signals",
+          "startFrame": 90,
+          "endFrame": 104
+        },
+        {
+          "wordIndex": 10,
+          "text": "stored",
+          "startFrame": 104,
+          "endFrame": 116
+        },
+        {
+          "wordIndex": 11,
+          "text": "that",
+          "startFrame": 116,
+          "endFrame": 124
+        },
+        {
+          "wordIndex": 12,
+          "text": "week",
+          "startFrame": 124,
+          "endFrame": 132
+        },
+        {
+          "wordIndex": 13,
+          "text": "number",
+          "startFrame": 132,
+          "endFrame": 143
+        },
+        {
+          "wordIndex": 14,
+          "text": "in",
+          "startFrame": 143,
+          "endFrame": 148
+        },
+        {
+          "wordIndex": 15,
+          "text": "ten",
+          "startFrame": 148,
+          "endFrame": 154
+        },
+        {
+          "wordIndex": 16,
+          "text": "bits.",
+          "startFrame": 154,
+          "endFrame": 163
+        }
+      ]
+    },
+    {
+      "id": "cue_0003",
+      "phraseId": "gps_value_range",
+      "startFrame": 172,
+      "endFrame": 247,
+      "lines": [
+        "The range ends at 1,023."
+      ],
+      "words": [
+        {
+          "wordIndex": 17,
+          "text": "The",
+          "startFrame": 172,
+          "endFrame": 184
+        },
+        {
+          "wordIndex": 18,
+          "text": "range",
+          "startFrame": 184,
+          "endFrame": 205
+        },
+        {
+          "wordIndex": 19,
+          "text": "ends",
+          "startFrame": 205,
+          "endFrame": 221
+        },
+        {
+          "wordIndex": 20,
+          "text": "at",
+          "startFrame": 221,
+          "endFrame": 230
+        },
+        {
+          "wordIndex": 21,
+          "text": "1,023.",
+          "startFrame": 230,
+          "endFrame": 247
+        }
+      ]
+    },
+    {
+      "id": "cue_0004",
+      "phraseId": "gps_at_limit",
+      "startFrame": 256,
+      "endFrame": 319,
+      "lines": [
+        "At the limit, there",
+        "is no new number left."
+      ],
+      "words": [
+        {
+          "wordIndex": 22,
+          "text": "At",
+          "startFrame": 256,
+          "endFrame": 260
+        },
+        {
+          "wordIndex": 23,
+          "text": "the",
+          "startFrame": 260,
+          "endFrame": 266
+        },
+        {
+          "wordIndex": 24,
+          "text": "limit,",
+          "startFrame": 266,
+          "endFrame": 275
+        },
+        {
+          "wordIndex": 25,
+          "text": "there",
+          "startFrame": 275,
+          "endFrame": 285
+        },
+        {
+          "wordIndex": 26,
+          "text": "is",
+          "startFrame": 285,
+          "endFrame": 289
+        },
+        {
+          "wordIndex": 27,
+          "text": "no",
+          "startFrame": 289,
+          "endFrame": 294
+        },
+        {
+          "wordIndex": 28,
+          "text": "new",
+          "startFrame": 294,
+          "endFrame": 300
+        },
+        {
+          "wordIndex": 29,
+          "text": "number",
+          "startFrame": 300,
+          "endFrame": 311
+        },
+        {
+          "wordIndex": 30,
+          "text": "left.",
+          "startFrame": 311,
+          "endFrame": 319
+        }
+      ]
+    },
+    {
+      "id": "cue_0005",
+      "phraseId": "gps_rollover",
+      "startFrame": 328,
+      "endFrame": 402,
+      "lines": [
+        "Zero is sent again when",
+        "the next week begins."
+      ],
+      "words": [
+        {
+          "wordIndex": 31,
+          "text": "Zero",
+          "startFrame": 328,
+          "endFrame": 336
+        },
+        {
+          "wordIndex": 32,
+          "text": "is",
+          "startFrame": 336,
+          "endFrame": 340
+        },
+        {
+          "wordIndex": 33,
+          "text": "sent",
+          "startFrame": 340,
+          "endFrame": 349
+        },
+        {
+          "wordIndex": 34,
+          "text": "again",
+          "startFrame": 349,
+          "endFrame": 359
+        },
+        {
+          "wordIndex": 35,
+          "text": "when",
+          "startFrame": 359,
+          "endFrame": 367
+        },
+        {
+          "wordIndex": 36,
+          "text": "the",
+          "startFrame": 367,
+          "endFrame": 373
+        },
+        {
+          "wordIndex": 37,
+          "text": "next",
+          "startFrame": 373,
+          "endFrame": 381
+        },
+        {
+          "wordIndex": 38,
+          "text": "week",
+          "startFrame": 381,
+          "endFrame": 390
+        },
+        {
+          "wordIndex": 39,
+          "text": "begins.",
+          "startFrame": 390,
+          "endFrame": 402
+        }
+      ]
+    },
+    {
+      "id": "cue_0006",
+      "phraseId": "gps_old_cycle",
+      "startFrame": 413,
+      "endFrame": 497,
+      "lines": [
+        "Old software read zero",
+        "as the previous cycle."
+      ],
+      "words": [
+        {
+          "wordIndex": 40,
+          "text": "Old",
+          "startFrame": 413,
+          "endFrame": 420
+        },
+        {
+          "wordIndex": 41,
+          "text": "software",
+          "startFrame": 420,
+          "endFrame": 437
+        },
+        {
+          "wordIndex": 42,
+          "text": "read",
+          "startFrame": 437,
+          "endFrame": 446
+        },
+        {
+          "wordIndex": 43,
+          "text": "zero",
+          "startFrame": 446,
+          "endFrame": 456
+        },
+        {
+          "wordIndex": 44,
+          "text": "as",
+          "startFrame": 456,
+          "endFrame": 461
+        },
+        {
+          "wordIndex": 45,
+          "text": "the",
+          "startFrame": 461,
+          "endFrame": 468
+        },
+        {
+          "wordIndex": 46,
+          "text": "previous",
+          "startFrame": 468,
+          "endFrame": 485
+        },
+        {
+          "wordIndex": 47,
+          "text": "cycle.",
+          "startFrame": 485,
+          "endFrame": 497
+        }
+      ]
+    },
+    {
+      "id": "cue_0007",
+      "phraseId": "gps_date_backward",
+      "startFrame": 506,
+      "endFrame": 562,
+      "lines": [
+        "Their displayed date",
+        "jumped backward."
+      ],
+      "words": [
+        {
+          "wordIndex": 48,
+          "text": "Their",
+          "startFrame": 506,
+          "endFrame": 514
+        },
+        {
+          "wordIndex": 49,
+          "text": "displayed",
+          "startFrame": 514,
+          "endFrame": 530
+        },
+        {
+          "wordIndex": 50,
+          "text": "date",
+          "startFrame": 530,
+          "endFrame": 537
+        },
+        {
+          "wordIndex": 51,
+          "text": "jumped",
+          "startFrame": 537,
+          "endFrame": 548
+        },
+        {
+          "wordIndex": 52,
+          "text": "backward.",
+          "startFrame": 548,
+          "endFrame": 562
+        }
+      ]
+    },
+    {
+      "id": "cue_0008",
+      "phraseId": "gps_time_continues",
+      "startFrame": 571,
+      "endFrame": 626,
+      "lines": [
+        "Real time kept",
+        "moving forward."
+      ],
+      "words": [
+        {
+          "wordIndex": 53,
+          "text": "Real",
+          "startFrame": 571,
+          "endFrame": 580
+        },
+        {
+          "wordIndex": 54,
+          "text": "time",
+          "startFrame": 580,
+          "endFrame": 589
+        },
+        {
+          "wordIndex": 55,
+          "text": "kept",
+          "startFrame": 589,
+          "endFrame": 598
+        },
+        {
+          "wordIndex": 56,
+          "text": "moving",
+          "startFrame": 598,
+          "endFrame": 611
+        },
+        {
+          "wordIndex": 57,
+          "text": "forward.",
+          "startFrame": 611,
+          "endFrame": 626
+        }
+      ]
+    },
+    {
+      "id": "cue_0009",
+      "phraseId": "gps_patch",
+      "startFrame": 636,
+      "endFrame": 713,
+      "lines": [
+        "An update selected",
+        "the correct GPS cycle."
+      ],
+      "words": [
+        {
+          "wordIndex": 58,
+          "text": "An",
+          "startFrame": 636,
+          "endFrame": 641
+        },
+        {
+          "wordIndex": 59,
+          "text": "update",
+          "startFrame": 641,
+          "endFrame": 654
+        },
+        {
+          "wordIndex": 60,
+          "text": "selected",
+          "startFrame": 654,
+          "endFrame": 671
+        },
+        {
+          "wordIndex": 61,
+          "text": "the",
+          "startFrame": 671,
+          "endFrame": 679
+        },
+        {
+          "wordIndex": 62,
+          "text": "correct",
+          "startFrame": 679,
+          "endFrame": 694
+        },
+        {
+          "wordIndex": 63,
+          "text": "GPS",
+          "startFrame": 694,
+          "endFrame": 701
+        },
+        {
+          "wordIndex": 64,
+          "text": "cycle.",
+          "startFrame": 701,
+          "endFrame": 713
+        }
+      ]
+    },
+    {
+      "id": "cue_0010",
+      "phraseId": "gps_correct_date",
+      "startFrame": 724,
+      "endFrame": 786,
+      "lines": [
+        "Now the receiver shows",
+        "the correct date."
+      ],
+      "words": [
+        {
+          "wordIndex": 65,
+          "text": "Now",
+          "startFrame": 724,
+          "endFrame": 730
+        },
+        {
+          "wordIndex": 66,
+          "text": "the",
+          "startFrame": 730,
+          "endFrame": 736
+        },
+        {
+          "wordIndex": 67,
+          "text": "receiver",
+          "startFrame": 736,
+          "endFrame": 750
+        },
+        {
+          "wordIndex": 68,
+          "text": "shows",
+          "startFrame": 750,
+          "endFrame": 759
+        },
+        {
+          "wordIndex": 69,
+          "text": "the",
+          "startFrame": 759,
+          "endFrame": 765
+        },
+        {
+          "wordIndex": 70,
+          "text": "correct",
+          "startFrame": 765,
+          "endFrame": 778
+        },
+        {
+          "wordIndex": 71,
+          "text": "date.",
+          "startFrame": 778,
+          "endFrame": 786
+        }
+      ]
+    },
+    {
+      "id": "cue_0011",
+      "phraseId": "gps_payoff",
+      "startFrame": 795,
+      "endFrame": 854,
+      "lines": [
+        "The number repeated.",
+        "Time did not."
+      ],
+      "words": [
+        {
+          "wordIndex": 72,
+          "text": "The",
+          "startFrame": 795,
+          "endFrame": 801
+        },
+        {
+          "wordIndex": 73,
+          "text": "number",
+          "startFrame": 801,
+          "endFrame": 814
+        },
+        {
+          "wordIndex": 74,
+          "text": "repeated.",
+          "startFrame": 814,
+          "endFrame": 831
+        },
+        {
+          "wordIndex": 75,
+          "text": "Time",
+          "startFrame": 831,
+          "endFrame": 840
+        },
+        {
+          "wordIndex": 76,
+          "text": "did",
+          "startFrame": 840,
+          "endFrame": 847
+        },
+        {
+          "wordIndex": 77,
+          "text": "not.",
+          "startFrame": 847,
+          "endFrame": 854
+        }
+      ]
+    }
+  ],
+  "contentHash": "27c5e5aaed2ab885a82ea03b736bff2ca4cf888d1d7854851754c860b700dcf5"
+}

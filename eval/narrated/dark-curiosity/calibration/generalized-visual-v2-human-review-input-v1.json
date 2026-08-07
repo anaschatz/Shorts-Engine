@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "profile": "generalized_visual_v2_human_review_input_v1",
+  "comparisonPath": "../../../../showcase/evidence/generalized-visual-v2-comparison.json",
+  "stories": [
+    {
+      "storyId": "gps",
+      "mediaPath": "../../../../showcase/assets/generalized-visual-v2-gps-proof.mp4",
+      "reportPath": "../../../../showcase/evidence/generalized-visual-v2-gps-proof/report.json",
+      "questions": [
+        {
+          "questionId": "gps_signal_content",
+          "kind": "factual",
+          "prompt": "What information does the GPS signal use in the mechanism shown?",
+          "options": [
+            { "optionId": "gps_week_number", "label": "A repeating week number" },
+            { "optionId": "gps_full_date", "label": "A complete calendar date" },
+            { "optionId": "gps_location_only", "label": "Only a latitude and longitude" }
+          ],
+          "expectedOptionId": "gps_week_number"
+        },
+        {
+          "questionId": "gps_counter_rollover",
+          "kind": "factual",
+          "prompt": "What happens when the limited GPS week counter reaches its maximum?",
+          "options": [
+            { "optionId": "gps_stops", "label": "It stops transmitting" },
+            { "optionId": "gps_restarts_zero", "label": "It rolls over and starts again at zero" },
+            { "optionId": "gps_adds_digit", "label": "It automatically adds another digit" }
+          ],
+          "expectedOptionId": "gps_restarts_zero"
+        },
+        {
+          "questionId": "gps_wrong_date_cause",
+          "kind": "factual",
+          "prompt": "Why can an older receiver show a date from an earlier cycle?",
+          "options": [
+            { "optionId": "gps_clock_reverse", "label": "Real time starts running backward" },
+            { "optionId": "gps_cycle_mapping", "label": "Its software maps the repeated number to the wrong cycle" },
+            { "optionId": "gps_satellite_move", "label": "The satellite moves to another orbit" }
+          ],
+          "expectedOptionId": "gps_cycle_mapping"
+        },
+        {
+          "questionId": "gps_uncertainty_boundary",
+          "kind": "uncertainty",
+          "prompt": "Which conclusion is supported by the explanation?",
+          "options": [
+            { "optionId": "gps_time_continues", "label": "Real time continues even though the bounded counter repeats" },
+            { "optionId": "gps_time_resets", "label": "The world clock actually resets to an earlier year" },
+            { "optionId": "gps_all_fail", "label": "Every GPS receiver must show the same wrong date" }
+          ],
+          "expectedOptionId": "gps_time_continues"
+        }
+      ]
+    },
+    {
+      "storyId": "odometer",
+      "mediaPath": "../../../../showcase/assets/generalized-visual-v2-odometer-proof.mp4",
+      "reportPath": "../../../../showcase/evidence/generalized-visual-v2-odometer-proof/report.json",
+      "questions": [
+        {
+          "questionId": "odometer_representation",
+          "kind": "factual",
+          "prompt": "What stores the distance in the odometer mechanism shown?",
+          "options": [
+            { "optionId": "odometer_wheels", "label": "A fixed bank of six digit wheels" },
+            { "optionId": "odometer_map", "label": "A map of every road travelled" },
+            { "optionId": "odometer_timer", "label": "A timer that counts driving hours" }
+          ],
+          "expectedOptionId": "odometer_wheels"
+        },
+        {
+          "questionId": "odometer_carry",
+          "kind": "factual",
+          "prompt": "What causes the higher odometer digits to change?",
+          "options": [
+            { "optionId": "odometer_random", "label": "They change randomly" },
+            { "optionId": "odometer_carry_chain", "label": "A carry propagates from one wheel to the next" },
+            { "optionId": "odometer_driver", "label": "The driver edits every digit manually" }
+          ],
+          "expectedOptionId": "odometer_carry_chain"
+        },
+        {
+          "questionId": "odometer_maximum",
+          "kind": "factual",
+          "prompt": "What display follows 999999 in this fixed six-digit mechanism?",
+          "options": [
+            { "optionId": "odometer_zero", "label": "000000" },
+            { "optionId": "odometer_million", "label": "1000000" },
+            { "optionId": "odometer_blank", "label": "A permanently blank display" }
+          ],
+          "expectedOptionId": "odometer_zero"
+        },
+        {
+          "questionId": "odometer_uncertainty_boundary",
+          "kind": "uncertainty",
+          "prompt": "What does the rollover alone not prove?",
+          "options": [
+            { "optionId": "odometer_not_new_car", "label": "That the vehicle itself became a new vehicle" },
+            { "optionId": "odometer_digits_bounded", "label": "That the display has a limited number of digits" },
+            { "optionId": "odometer_counter_repeat", "label": "That a bounded counter can repeat" }
+          ],
+          "expectedOptionId": "odometer_not_new_car"
+        }
+      ]
+    },
+    {
+      "storyId": "baychimo",
+      "mediaPath": "../../../../showcase/assets/generalized-visual-v2-baychimo-proof.mp4",
+      "reportPath": "../../../../showcase/evidence/generalized-visual-v2-baychimo-proof/report.json",
+      "questions": [
+        {
+          "questionId": "baychimo_initial_assumption",
+          "kind": "factual",
+          "prompt": "What did the crew initially assume after leaving Baychimo in the blizzard?",
+          "options": [
+            { "optionId": "baychimo_sank", "label": "The ship had sunk" },
+            { "optionId": "baychimo_port", "label": "The ship had reached a warm port" },
+            { "optionId": "baychimo_sold", "label": "The ship had been sold" }
+          ],
+          "expectedOptionId": "baychimo_sank"
+        },
+        {
+          "questionId": "baychimo_later_evidence",
+          "kind": "factual",
+          "prompt": "What later evidence contradicted that first assumption?",
+          "options": [
+            { "optionId": "baychimo_hunters", "label": "Hunters saw the ship again near the coast" },
+            { "optionId": "baychimo_radio", "label": "The crew received a radio confession" },
+            { "optionId": "baychimo_wreck", "label": "A confirmed wreck was recovered" }
+          ],
+          "expectedOptionId": "baychimo_hunters"
+        },
+        {
+          "questionId": "baychimo_drift_mechanism",
+          "kind": "factual",
+          "prompt": "How does the documented evidence describe Baychimo's later movement?",
+          "options": [
+            { "optionId": "baychimo_pack_ice", "label": "It drifted without a crew with the Arctic pack ice" },
+            { "optionId": "baychimo_secret_crew", "label": "A hidden crew sailed it between ports" },
+            { "optionId": "baychimo_engine", "label": "Its engine ran continuously for decades" }
+          ],
+          "expectedOptionId": "baychimo_pack_ice"
+        },
+        {
+          "questionId": "baychimo_uncertainty_boundary",
+          "kind": "uncertainty",
+          "prompt": "What remains unresolved after the last documented record?",
+          "options": [
+            { "optionId": "baychimo_final_fate", "label": "The ship's final fate" },
+            { "optionId": "baychimo_ghost", "label": "Whether a supernatural ghost definitely controlled it" },
+            { "optionId": "baychimo_crew_name", "label": "Whether the original crew existed" }
+          ],
+          "expectedOptionId": "baychimo_final_fate"
+        }
+      ]
+    }
+  ]
+}

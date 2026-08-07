@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism-explainer-v1",
+  "id": "gps_week_counter_mechanism_v1",
+  "title": "WHY A GPS DATE JUMPED BACK",
+  "device": {
+    "label": "GPS RECEIVER",
+    "digitCount": 4,
+    "unit": "WEEK VALUE"
+  },
+  "phrases": [
+    {
+      "id": "gps_week_not_date",
+      "text": "GPS does not send a full calendar date.",
+      "pauseAfterMs": 260,
+      "visual": {
+        "action": "enter",
+        "triggerToken": null,
+        "displayFrom": "0838",
+        "displayTo": "0838",
+        "status": "GPS SIGNAL",
+        "tone": "neutral",
+        "helper": {
+          "recipe": "interpretation",
+          "title": "GPS SENDS",
+          "primary": "WEEK NUMBER",
+          "secondary": "NOT A FULL DATE"
+        }
+      }
+    },
+    {
+      "id": "gps_ten_bits",
+      "text": "Older signals stored that week number in ten bits.",
+      "pauseAfterMs": 300,
+      "visual": {
+        "action": "update",
+        "triggerToken": null,
+        "displayFrom": "0838",
+        "displayTo": "0838",
+        "status": "10-BIT WEEK FIELD",
+        "tone": "neutral",
+        "helper": {
+          "recipe": "range",
+          "title": "FIELD SIZE",
+          "primary": "10 BITS",
+          "secondary": "1,024 POSSIBLE VALUES"
+        }
+      }
+    },
+    {
+      "id": "gps_value_range",
+      "text": "The range ends at 1,023.",
+      "pauseAfterMs": 320,
+      "visual": {
+        "action": "update",
+        "triggerToken": null,
+        "displayFrom": "0838",
+        "displayTo": "1023",
+        "status": "LAST POSSIBLE VALUE",
+        "tone": "accent",
+        "helper": {
+          "recipe": "range",
+          "title": "1,024 VALUES",
+          "primary": "0",
+          "secondary": "1,023"
+        }
+      }
+    },
+    {
+      "id": "gps_at_limit",
+      "text": "At the limit, there is no new number left.",
+      "pauseAfterMs": 300,
+      "visual": {
+        "action": "hold",
+        "triggerToken": null,
+        "displayFrom": "1023",
+        "displayTo": "1023",
+        "status": "COUNTER FULL",
+        "tone": "warning",
+        "helper": {
+          "recipe": "range",
+          "title": "END OF THE FIELD",
+          "primary": "1,023",
+          "secondary": "NO NEXT VALUE"
+        }
+      }
+    },
+    {
+      "id": "gps_rollover",
+      "text": "Zero is sent again when the next week begins.",
+      "pauseAfterMs": 380,
+      "visual": {
+        "action": "rollover",
+        "triggerToken": null,
+        "displayFrom": "1023",
+        "displayTo": "0000",
+        "status": "VALUE REPEATS",
+        "tone": "warning",
+        "helper": {
+          "recipe": "range",
+          "title": "NEXT WEEK",
+          "primary": "1,023 BECOMES 0000",
+          "secondary": "THE FIELD WRAPS"
+        }
+      }
+    },
+    {
+      "id": "gps_old_cycle",
+      "text": "Old software read zero as the previous cycle.",
+      "pauseAfterMs": 320,
+      "visual": {
+        "action": "update",
+        "triggerToken": null,
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "status": "REPEATED WEEK VALUE",
+        "tone": "warning",
+        "helper": {
+          "recipe": "interpretation",
+          "title": "OLD SOFTWARE",
+          "primary": "WEEK 0000 = YEAR 1999",
+          "secondary": "WRONG CYCLE"
+        }
+      }
+    },
+    {
+      "id": "gps_date_backward",
+      "text": "Their displayed date jumped backward.",
+      "pauseAfterMs": 300,
+      "visual": {
+        "action": "hold",
+        "triggerToken": null,
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "status": "WRONG DATE",
+        "tone": "warning",
+        "helper": {
+          "recipe": "interpretation",
+          "title": "RECEIVER SHOWS",
+          "primary": "1999",
+          "secondary": "REAL DATE: 2019"
+        }
+      }
+    },
+    {
+      "id": "gps_time_continues",
+      "text": "Real time kept moving forward.",
+      "pauseAfterMs": 340,
+      "visual": {
+        "action": "hold",
+        "triggerToken": null,
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "status": "WEEK VALUE STAYS 0000",
+        "tone": "warning",
+        "helper": {
+          "recipe": "time_continues",
+          "title": "REAL TIME",
+          "primary": "YEAR 2019",
+          "secondary": "KEPT MOVING FORWARD"
+        }
+      }
+    },
+    {
+      "id": "gps_patch",
+      "text": "An update selected the correct GPS cycle.",
+      "pauseAfterMs": 360,
+      "visual": {
+        "action": "resolve",
+        "triggerToken": null,
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "status": "CORRECT CYCLE",
+        "tone": "success",
+        "helper": {
+          "recipe": "patch",
+          "title": "SOFTWARE UPDATE",
+          "primary": "WEEK 0000 = YEAR 2019",
+          "secondary": "CORRECT CYCLE SELECTED"
+        }
+      }
+    },
+    {
+      "id": "gps_correct_date",
+      "text": "Now the receiver shows the correct date.",
+      "pauseAfterMs": 320,
+      "visual": {
+        "action": "hold",
+        "triggerToken": null,
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "status": "CORRECT DATE",
+        "tone": "success",
+        "helper": {
+          "recipe": "patch",
+          "title": "RECEIVER NOW SHOWS",
+          "primary": "2019",
+          "secondary": "FROM THE SAME WEEK VALUE"
+        }
+      }
+    },
+    {
+      "id": "gps_payoff",
+      "text": "The number repeated. Time did not.",
+      "pauseAfterMs": 500,
+      "visual": {
+        "action": "resolve",
+        "triggerToken": null,
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "status": "SAME NUMBER",
+        "tone": "success",
+        "helper": {
+          "recipe": "time_continues",
+          "title": "THE NUMBER REPEATED",
+          "primary": "TIME",
+          "secondary": "KEPT MOVING"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,400 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism_explainer_calibration_captions_v1",
+  "status": "ready",
+  "calibration": true,
+  "publishable": false,
+  "storyId": "odometer_rollover_mechanism_v1",
+  "fps": 30,
+  "durationFrames": 537,
+  "narrationText": "A six-digit odometer has six number wheels. Each wheel carries into the next after nine. At the maximum, all six wheels show nine. One more mile carries through all six wheels. The display returns to zero. The car did not become new. The counter simply ran out of digits.",
+  "wordCount": 49,
+  "themeId": "human_readable_purple_v1",
+  "timingMode": "frame_boundary_floor_v1",
+  "safeZone": {
+    "left": 0.08,
+    "right": 0.92,
+    "top": 0.68,
+    "bottom": 0.86,
+    "maxLines": 2
+  },
+  "cues": [
+    {
+      "id": "cue_0001",
+      "phraseId": "odometer_six_wheels",
+      "startFrame": 0,
+      "endFrame": 72,
+      "lines": [
+        "A six-digit odometer",
+        "has six number wheels."
+      ],
+      "words": [
+        {
+          "wordIndex": 0,
+          "text": "A",
+          "startFrame": 0,
+          "endFrame": 2
+        },
+        {
+          "wordIndex": 1,
+          "text": "six-digit",
+          "startFrame": 2,
+          "endFrame": 18
+        },
+        {
+          "wordIndex": 2,
+          "text": "odometer",
+          "startFrame": 18,
+          "endFrame": 34
+        },
+        {
+          "wordIndex": 3,
+          "text": "has",
+          "startFrame": 34,
+          "endFrame": 41
+        },
+        {
+          "wordIndex": 4,
+          "text": "six",
+          "startFrame": 41,
+          "endFrame": 47
+        },
+        {
+          "wordIndex": 5,
+          "text": "number",
+          "startFrame": 47,
+          "endFrame": 59
+        },
+        {
+          "wordIndex": 6,
+          "text": "wheels.",
+          "startFrame": 59,
+          "endFrame": 72
+        }
+      ]
+    },
+    {
+      "id": "cue_0002",
+      "phraseId": "odometer_carry",
+      "startFrame": 81,
+      "endFrame": 147,
+      "lines": [
+        "Each wheel carries into",
+        "the next after nine."
+      ],
+      "words": [
+        {
+          "wordIndex": 7,
+          "text": "Each",
+          "startFrame": 81,
+          "endFrame": 88
+        },
+        {
+          "wordIndex": 8,
+          "text": "wheel",
+          "startFrame": 88,
+          "endFrame": 97
+        },
+        {
+          "wordIndex": 9,
+          "text": "carries",
+          "startFrame": 97,
+          "endFrame": 109
+        },
+        {
+          "wordIndex": 10,
+          "text": "into",
+          "startFrame": 109,
+          "endFrame": 117
+        },
+        {
+          "wordIndex": 11,
+          "text": "the",
+          "startFrame": 117,
+          "endFrame": 123
+        },
+        {
+          "wordIndex": 12,
+          "text": "next",
+          "startFrame": 123,
+          "endFrame": 130
+        },
+        {
+          "wordIndex": 13,
+          "text": "after",
+          "startFrame": 130,
+          "endFrame": 139
+        },
+        {
+          "wordIndex": 14,
+          "text": "nine.",
+          "startFrame": 139,
+          "endFrame": 147
+        }
+      ]
+    },
+    {
+      "id": "cue_0003",
+      "phraseId": "odometer_last_value",
+      "startFrame": 157,
+      "endFrame": 228,
+      "lines": [
+        "At the maximum, all",
+        "six wheels show nine."
+      ],
+      "words": [
+        {
+          "wordIndex": 15,
+          "text": "At",
+          "startFrame": 157,
+          "endFrame": 161
+        },
+        {
+          "wordIndex": 16,
+          "text": "the",
+          "startFrame": 161,
+          "endFrame": 168
+        },
+        {
+          "wordIndex": 17,
+          "text": "maximum,",
+          "startFrame": 168,
+          "endFrame": 183
+        },
+        {
+          "wordIndex": 18,
+          "text": "all",
+          "startFrame": 183,
+          "endFrame": 190
+        },
+        {
+          "wordIndex": 19,
+          "text": "six",
+          "startFrame": 190,
+          "endFrame": 197
+        },
+        {
+          "wordIndex": 20,
+          "text": "wheels",
+          "startFrame": 197,
+          "endFrame": 210
+        },
+        {
+          "wordIndex": 21,
+          "text": "show",
+          "startFrame": 210,
+          "endFrame": 219
+        },
+        {
+          "wordIndex": 22,
+          "text": "nine.",
+          "startFrame": 219,
+          "endFrame": 228
+        }
+      ]
+    },
+    {
+      "id": "cue_0004",
+      "phraseId": "odometer_one_more",
+      "startFrame": 238,
+      "endFrame": 307,
+      "lines": [
+        "One more mile carries",
+        "through all six wheels."
+      ],
+      "words": [
+        {
+          "wordIndex": 23,
+          "text": "One",
+          "startFrame": 238,
+          "endFrame": 243
+        },
+        {
+          "wordIndex": 24,
+          "text": "more",
+          "startFrame": 243,
+          "endFrame": 251
+        },
+        {
+          "wordIndex": 25,
+          "text": "mile",
+          "startFrame": 251,
+          "endFrame": 259
+        },
+        {
+          "wordIndex": 26,
+          "text": "carries",
+          "startFrame": 259,
+          "endFrame": 271
+        },
+        {
+          "wordIndex": 27,
+          "text": "through",
+          "startFrame": 271,
+          "endFrame": 284
+        },
+        {
+          "wordIndex": 28,
+          "text": "all",
+          "startFrame": 284,
+          "endFrame": 290
+        },
+        {
+          "wordIndex": 29,
+          "text": "six",
+          "startFrame": 290,
+          "endFrame": 296
+        },
+        {
+          "wordIndex": 30,
+          "text": "wheels.",
+          "startFrame": 296,
+          "endFrame": 307
+        }
+      ]
+    },
+    {
+      "id": "cue_0005",
+      "phraseId": "odometer_zero",
+      "startFrame": 318,
+      "endFrame": 367,
+      "lines": [
+        "The display returns to zero."
+      ],
+      "words": [
+        {
+          "wordIndex": 31,
+          "text": "The",
+          "startFrame": 318,
+          "endFrame": 324
+        },
+        {
+          "wordIndex": 32,
+          "text": "display",
+          "startFrame": 324,
+          "endFrame": 339
+        },
+        {
+          "wordIndex": 33,
+          "text": "returns",
+          "startFrame": 339,
+          "endFrame": 353
+        },
+        {
+          "wordIndex": 34,
+          "text": "to",
+          "startFrame": 353,
+          "endFrame": 358
+        },
+        {
+          "wordIndex": 35,
+          "text": "zero.",
+          "startFrame": 358,
+          "endFrame": 367
+        }
+      ]
+    },
+    {
+      "id": "cue_0006",
+      "phraseId": "odometer_same_car",
+      "startFrame": 377,
+      "endFrame": 421,
+      "lines": [
+        "The car did not become new."
+      ],
+      "words": [
+        {
+          "wordIndex": 36,
+          "text": "The",
+          "startFrame": 377,
+          "endFrame": 383
+        },
+        {
+          "wordIndex": 37,
+          "text": "car",
+          "startFrame": 383,
+          "endFrame": 389
+        },
+        {
+          "wordIndex": 38,
+          "text": "did",
+          "startFrame": 389,
+          "endFrame": 396
+        },
+        {
+          "wordIndex": 39,
+          "text": "not",
+          "startFrame": 396,
+          "endFrame": 402
+        },
+        {
+          "wordIndex": 40,
+          "text": "become",
+          "startFrame": 402,
+          "endFrame": 414
+        },
+        {
+          "wordIndex": 41,
+          "text": "new.",
+          "startFrame": 414,
+          "endFrame": 421
+        }
+      ]
+    },
+    {
+      "id": "cue_0007",
+      "phraseId": "odometer_payoff",
+      "startFrame": 431,
+      "endFrame": 492,
+      "lines": [
+        "The counter simply",
+        "ran out of digits."
+      ],
+      "words": [
+        {
+          "wordIndex": 42,
+          "text": "The",
+          "startFrame": 431,
+          "endFrame": 437
+        },
+        {
+          "wordIndex": 43,
+          "text": "counter",
+          "startFrame": 437,
+          "endFrame": 451
+        },
+        {
+          "wordIndex": 44,
+          "text": "simply",
+          "startFrame": 451,
+          "endFrame": 462
+        },
+        {
+          "wordIndex": 45,
+          "text": "ran",
+          "startFrame": 462,
+          "endFrame": 469
+        },
+        {
+          "wordIndex": 46,
+          "text": "out",
+          "startFrame": 469,
+          "endFrame": 475
+        },
+        {
+          "wordIndex": 47,
+          "text": "of",
+          "startFrame": 475,
+          "endFrame": 480
+        },
+        {
+          "wordIndex": 48,
+          "text": "digits.",
+          "startFrame": 480,
+          "endFrame": 492
+        }
+      ]
+    }
+  ],
+  "contentHash": "85126722daef7de038339c1835ef1649497325357ca19018a6a62d71a4ddff67"
+}

@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 2,
+  "profile": "generalized_visual_program_proposal_v2",
+  "bindings": {
+    "semanticEventGraphHash": "0f999495fc4ebd07f652b9ed5af7e49976cfe23e7819a12c1a02968bf8ee3bef",
+    "timingContextHash": "5ef4f3c0ef568f34bc257969fe37f81689e1eb2196fb4f8aa5a901bbea35a626",
+    "draftHash": "d056def5df87798ed5c6a912263b923465c13b836ca4d293529f647c9ae1577a",
+    "sourceRevisionHash": "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4"
+  },
+  "styleSpecId": "educational_line_art_reference_v1",
+  "scenes": [
+    {
+      "id": "visual_scene_00",
+      "entityIds": [
+        "baychimo",
+        "year_1931",
+        "baychimo_crew",
+        "blizzard",
+        "arctic_ice",
+        "sinking_assumption"
+      ],
+      "propositionIds": [
+        "baychimo_hook_year",
+        "baychimo_hook_crew_observation",
+        "baychimo_hook_observed_absence",
+        "baychimo_context_sinking_assumption"
+      ],
+      "layoutIntent": "directed_flow",
+      "focusEntityId": "baychimo_crew"
+    },
+    {
+      "id": "visual_scene_01",
+      "entityIds": [
+        "local_hunters",
+        "baychimo",
+        "alaskan_coast",
+        "sinking_assumption",
+        "later_observers"
+      ],
+      "propositionIds": [
+        "baychimo_context_hunter_sighting",
+        "baychimo_evidence_later_years",
+        "baychimo_evidence_sightings",
+        "baychimo_evidence_boardings"
+      ],
+      "layoutIntent": "timeline_track",
+      "focusEntityId": "baychimo"
+    },
+    {
+      "id": "visual_scene_02",
+      "entityIds": [
+        "baychimo",
+        "arctic_pack_ice",
+        "company_archive_record"
+      ],
+      "propositionIds": [
+        "baychimo_evidence_without_crew",
+        "baychimo_evidence_pack_ice_drift",
+        "baychimo_turn_latest_record",
+        "baychimo_turn_decades_after_abandonment"
+      ],
+      "layoutIntent": "radial_focus",
+      "focusEntityId": "baychimo"
+    },
+    {
+      "id": "visual_scene_03",
+      "entityIds": [
+        "company_archive_record",
+        "baychimo",
+        "arctic_pack_ice",
+        "supernatural_ghost_ship_interpretation",
+        "baychimo_final_fate"
+      ],
+      "propositionIds": [
+        "baychimo_payoff_documented_drift",
+        "baychimo_payoff_not_supernatural",
+        "baychimo_payoff_unknown_fate"
+      ],
+      "layoutIntent": "layered_stack",
+      "focusEntityId": "baychimo"
+    }
+  ],
+  "contentHash": "60b48e16c91094d1eca97e227df2de1ba410f59436cb1c250c8b9beeb5333dd2"
+}

@@ -1,0 +1,928 @@
+{
+  "schemaVersion": 2,
+  "profile": "generalized_visual_program_v2",
+  "profileVersion": "2.0.0",
+  "bindings": {
+    "proposalHash": "0cbddedda5b6c9086dd89f14dc311769d5988608f31ba39b028982df225fa16b",
+    "semanticEventGraphHash": "bc7f784640b6a0fb2e6eab88e3872d910c420a606f8b29958963b8453bc17037",
+    "timingContextHash": "3ffaf0c85564eccd5f912e5b205502079059a28b3bb2a9c63dfcb76bd543f599",
+    "draftHash": "e739545bbab1d7d2d6cbcf14910997a79294e658fd6bdc7aea274aeb59dc7912",
+    "sourceRevisionHash": "e582553506119b949ca3d0ed9f6923831099a81470522463f2618e0b9fcba553"
+  },
+  "presentation": {
+    "title": "WHY AN ODOMETER RETURNS TO ZERO"
+  },
+  "style": {
+    "specId": "educational_line_art_reference_v1",
+    "specVersion": "1.0.0"
+  },
+  "trust": {
+    "mode": "calibration_trusted",
+    "disclosure": "local_llm_generated_nonproduction"
+  },
+  "duration": {
+    "fps": 30,
+    "totalFrames": 537
+  },
+  "scenes": [
+    {
+      "id": "visual_scene_00",
+      "entityIds": [
+        "odometer_vehicle",
+        "odometer_wheel_bank",
+        "odometer_before_carry",
+        "odometer_after_carry",
+        "odometer_maximum"
+      ],
+      "propositionIds": [
+        "prop_odometer_wheels",
+        "prop_odometer_carry",
+        "prop_odometer_maximum",
+        "prop_odometer_full_carry"
+      ],
+      "layoutIntent": "directed_flow",
+      "focusEntityId": "odometer_wheel_bank",
+      "startFrame": 0,
+      "endFrame": 272,
+      "readabilityHold": {
+        "startFrame": 264,
+        "endFrame": 272
+      },
+      "entities": [
+        {
+          "id": "odometer_vehicle",
+          "kind": "vehicle",
+          "visualSubjectKind": "vehicle",
+          "label": "SAME CAR",
+          "persistent": true,
+          "claimIds": [
+            "claim_odometer_machine",
+            "claim_odometer_continues"
+          ]
+        },
+        {
+          "id": "odometer_wheel_bank",
+          "kind": "wheel_bank",
+          "visualSubjectKind": "wheel_bank",
+          "label": "SIX NUMBER WHEELS",
+          "persistent": true,
+          "claimIds": [
+            "claim_odometer_wheels",
+            "claim_odometer_carry"
+          ]
+        },
+        {
+          "id": "odometer_before_carry",
+          "kind": "numeric_token",
+          "visualSubjectKind": "numeric_token",
+          "label": "000009",
+          "persistent": false,
+          "claimIds": [
+            "claim_odometer_carry"
+          ]
+        },
+        {
+          "id": "odometer_after_carry",
+          "kind": "numeric_token",
+          "visualSubjectKind": "numeric_token",
+          "label": "000010",
+          "persistent": false,
+          "claimIds": [
+            "claim_odometer_carry"
+          ]
+        },
+        {
+          "id": "odometer_maximum",
+          "kind": "numeric_token",
+          "visualSubjectKind": "numeric_token",
+          "label": "999999",
+          "persistent": false,
+          "claimIds": [
+            "claim_odometer_maximum"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "id": "relation_0_00",
+          "propositionId": "prop_odometer_wheels",
+          "fromEntityId": "odometer_vehicle",
+          "toEntityId": "odometer_wheel_bank",
+          "predicate": "contains_six_wheels",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 0
+        },
+        {
+          "id": "relation_0_01",
+          "propositionId": "prop_odometer_carry",
+          "fromEntityId": "odometer_before_carry",
+          "toEntityId": "odometer_wheel_bank",
+          "predicate": "carries_to_next_wheel",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 1
+        },
+        {
+          "id": "relation_0_02",
+          "propositionId": "prop_odometer_maximum",
+          "fromEntityId": "odometer_wheel_bank",
+          "toEntityId": "odometer_maximum",
+          "predicate": "sets_all_wheels_to_nine",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 2
+        },
+        {
+          "id": "relation_0_03",
+          "propositionId": "prop_odometer_full_carry",
+          "fromEntityId": "odometer_maximum",
+          "toEntityId": "odometer_wheel_bank",
+          "predicate": "carries_through_all_wheels",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 3
+        }
+      ],
+      "events": [
+        {
+          "id": "event_0_00",
+          "propositionId": "prop_odometer_wheels",
+          "beatId": "odometer_six_wheels",
+          "eventKind": "causal_action",
+          "predicate": "contains_six_wheels",
+          "semanticOperation": "connect_entities",
+          "subjectEntityId": "odometer_vehicle",
+          "objectEntityIds": [
+            "odometer_wheel_bank"
+          ],
+          "focusEntityIds": [
+            "odometer_wheel_bank"
+          ],
+          "certainty": "verified",
+          "startFrame": 0,
+          "endFrame": 72,
+          "order": 0
+        },
+        {
+          "id": "event_0_01",
+          "propositionId": "prop_odometer_carry",
+          "beatId": "odometer_carry",
+          "eventKind": "causal_action",
+          "predicate": "carries_to_next_wheel",
+          "semanticOperation": "propagate_carry",
+          "subjectEntityId": "odometer_before_carry",
+          "objectEntityIds": [
+            "odometer_wheel_bank"
+          ],
+          "focusEntityIds": [
+            "odometer_wheel_bank",
+            "odometer_after_carry"
+          ],
+          "certainty": "verified",
+          "startFrame": 81,
+          "endFrame": 147,
+          "order": 1
+        },
+        {
+          "id": "event_0_02",
+          "propositionId": "prop_odometer_maximum",
+          "beatId": "odometer_last_value",
+          "eventKind": "causal_action",
+          "predicate": "sets_all_wheels_to_nine",
+          "semanticOperation": "connect_entities",
+          "subjectEntityId": "odometer_wheel_bank",
+          "objectEntityIds": [
+            "odometer_maximum"
+          ],
+          "focusEntityIds": [
+            "odometer_maximum"
+          ],
+          "certainty": "verified",
+          "startFrame": 157,
+          "endFrame": 228,
+          "order": 2
+        },
+        {
+          "id": "event_0_03",
+          "propositionId": "prop_odometer_full_carry",
+          "beatId": "odometer_one_more",
+          "eventKind": "causal_action",
+          "predicate": "carries_through_all_wheels",
+          "semanticOperation": "propagate_carry",
+          "subjectEntityId": "odometer_maximum",
+          "objectEntityIds": [
+            "odometer_wheel_bank"
+          ],
+          "focusEntityIds": [
+            "odometer_wheel_bank"
+          ],
+          "certainty": "verified",
+          "startFrame": 238,
+          "endFrame": 272,
+          "order": 3
+        }
+      ],
+      "layout": {
+        "profileId": "deterministic_semantic_graph_layout_v2",
+        "profileVersion": "2.0.0",
+        "canvas": {
+          "width": 1080,
+          "height": 1920
+        },
+        "regions": {
+          "visualRoi": {
+            "x": 72,
+            "y": 276,
+            "width": 936,
+            "height": 1068
+          },
+          "captionLane": {
+            "x": 0,
+            "y": 1416,
+            "width": 1080,
+            "height": 504
+          }
+        },
+        "nodes": [
+          {
+            "entityId": "odometer_vehicle",
+            "order": 0,
+            "role": "participant",
+            "bounds": {
+              "x": 90,
+              "y": 340,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "odometer_wheel_bank",
+            "order": 1,
+            "role": "focus",
+            "bounds": {
+              "x": 244,
+              "y": 328,
+              "width": 360,
+              "height": 156
+            }
+          },
+          {
+            "entityId": "odometer_before_carry",
+            "order": 2,
+            "role": "participant",
+            "bounds": {
+              "x": 554,
+              "y": 340,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "odometer_after_carry",
+            "order": 3,
+            "role": "participant",
+            "bounds": {
+              "x": 786,
+              "y": 340,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "odometer_maximum",
+            "order": 4,
+            "role": "participant",
+            "bounds": {
+              "x": 438,
+              "y": 1148,
+              "width": 204,
+              "height": 132
+            }
+          }
+        ],
+        "edges": [
+          {
+            "relationId": "relation_0_00",
+            "fromEntityId": "odometer_vehicle",
+            "toEntityId": "odometer_wheel_bank",
+            "kind": "line",
+            "points": [
+              {
+                "x": 192,
+                "y": 406
+              },
+              {
+                "x": 424,
+                "y": 406
+              }
+            ]
+          },
+          {
+            "relationId": "relation_0_01",
+            "fromEntityId": "odometer_before_carry",
+            "toEntityId": "odometer_wheel_bank",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 656,
+                "y": 406
+              },
+              {
+                "x": 504,
+                "y": 442
+              },
+              {
+                "x": 424,
+                "y": 406
+              }
+            ]
+          },
+          {
+            "relationId": "relation_0_02",
+            "fromEntityId": "odometer_wheel_bank",
+            "toEntityId": "odometer_maximum",
+            "kind": "line",
+            "points": [
+              {
+                "x": 424,
+                "y": 406
+              },
+              {
+                "x": 540,
+                "y": 1214
+              }
+            ]
+          },
+          {
+            "relationId": "relation_0_03",
+            "fromEntityId": "odometer_maximum",
+            "toEntityId": "odometer_wheel_bank",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 540,
+                "y": 1214
+              },
+              {
+                "x": 446,
+                "y": 846
+              },
+              {
+                "x": 424,
+                "y": 406
+              }
+            ]
+          }
+        ],
+        "constraints": {
+          "maximumSimultaneousMotion": 2,
+          "minimumSettledHoldFrames": 8
+        }
+      },
+      "tracks": [
+        {
+          "id": "track_0_00",
+          "targetKind": "relation",
+          "targetId": "relation_0_00",
+          "operation": "draw",
+          "startFrame": 0,
+          "endFrame": 36,
+          "easing": "ease_out_cubic",
+          "order": 0
+        },
+        {
+          "id": "track_0_01",
+          "targetKind": "entity",
+          "targetId": "odometer_wheel_bank",
+          "operation": "focus",
+          "startFrame": 36,
+          "endFrame": 72,
+          "easing": "ease_out_cubic",
+          "order": 1
+        },
+        {
+          "id": "track_0_02",
+          "targetKind": "relation",
+          "targetId": "relation_0_01",
+          "operation": "draw",
+          "startFrame": 81,
+          "endFrame": 147,
+          "easing": "ease_out_cubic",
+          "order": 2
+        },
+        {
+          "id": "track_0_03",
+          "targetKind": "entity",
+          "targetId": "odometer_wheel_bank",
+          "operation": "propagate_carry",
+          "startFrame": 81,
+          "endFrame": 147,
+          "easing": "ease_out_cubic",
+          "order": 3
+        },
+        {
+          "id": "track_0_04",
+          "targetKind": "relation",
+          "targetId": "relation_0_02",
+          "operation": "draw",
+          "startFrame": 157,
+          "endFrame": 192,
+          "easing": "ease_out_cubic",
+          "order": 4
+        },
+        {
+          "id": "track_0_05",
+          "targetKind": "entity",
+          "targetId": "odometer_maximum",
+          "operation": "focus",
+          "startFrame": 192,
+          "endFrame": 228,
+          "easing": "ease_out_cubic",
+          "order": 5
+        },
+        {
+          "id": "track_0_06",
+          "targetKind": "relation",
+          "targetId": "relation_0_03",
+          "operation": "draw",
+          "startFrame": 238,
+          "endFrame": 264,
+          "easing": "ease_out_cubic",
+          "order": 6
+        },
+        {
+          "id": "track_0_07",
+          "targetKind": "entity",
+          "targetId": "odometer_wheel_bank",
+          "operation": "propagate_carry",
+          "startFrame": 238,
+          "endFrame": 264,
+          "easing": "ease_out_cubic",
+          "order": 7
+        }
+      ],
+      "compositionFingerprint": "8a92d283e2e7c44f1865e8a51353866b4b6748b42370f915c30bf2a666332ffa"
+    },
+    {
+      "id": "visual_scene_01",
+      "entityIds": [
+        "odometer_wheel_bank",
+        "odometer_zero",
+        "odometer_vehicle"
+      ],
+      "propositionIds": [
+        "prop_odometer_rollover",
+        "prop_odometer_zero",
+        "prop_odometer_continues"
+      ],
+      "layoutIntent": "timeline_track",
+      "focusEntityId": "odometer_zero",
+      "startFrame": 272,
+      "endFrame": 431,
+      "readabilityHold": {
+        "startFrame": 423,
+        "endFrame": 431
+      },
+      "entities": [
+        {
+          "id": "odometer_wheel_bank",
+          "kind": "wheel_bank",
+          "visualSubjectKind": "wheel_bank",
+          "label": "SIX NUMBER WHEELS",
+          "persistent": true,
+          "claimIds": [
+            "claim_odometer_wheels",
+            "claim_odometer_carry"
+          ]
+        },
+        {
+          "id": "odometer_zero",
+          "kind": "numeric_token",
+          "visualSubjectKind": "numeric_token",
+          "label": "000000",
+          "persistent": true,
+          "claimIds": [
+            "claim_odometer_zero"
+          ]
+        },
+        {
+          "id": "odometer_vehicle",
+          "kind": "vehicle",
+          "visualSubjectKind": "vehicle",
+          "label": "SAME CAR",
+          "persistent": true,
+          "claimIds": [
+            "claim_odometer_machine",
+            "claim_odometer_continues"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "id": "relation_1_00",
+          "propositionId": "prop_odometer_rollover",
+          "fromEntityId": "odometer_wheel_bank",
+          "toEntityId": "odometer_zero",
+          "predicate": "rolls_over_to",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 0
+        },
+        {
+          "id": "relation_1_01",
+          "propositionId": "prop_odometer_zero",
+          "fromEntityId": "odometer_zero",
+          "toEntityId": "odometer_wheel_bank",
+          "predicate": "displayed_by_wheel_bank",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 1
+        }
+      ],
+      "events": [
+        {
+          "id": "event_1_00",
+          "propositionId": "prop_odometer_rollover",
+          "beatId": "odometer_one_more",
+          "eventKind": "state_transition",
+          "predicate": "rolls_over_to",
+          "semanticOperation": "replace_value",
+          "subjectEntityId": "odometer_wheel_bank",
+          "objectEntityIds": [
+            "odometer_zero"
+          ],
+          "focusEntityIds": [
+            "odometer_zero"
+          ],
+          "certainty": "verified",
+          "startFrame": 272,
+          "endFrame": 307,
+          "order": 0
+        },
+        {
+          "id": "event_1_01",
+          "propositionId": "prop_odometer_zero",
+          "beatId": "odometer_zero",
+          "eventKind": "causal_action",
+          "predicate": "displayed_by_wheel_bank",
+          "semanticOperation": "connect_entities",
+          "subjectEntityId": "odometer_zero",
+          "objectEntityIds": [
+            "odometer_wheel_bank"
+          ],
+          "focusEntityIds": [
+            "odometer_zero",
+            "odometer_wheel_bank"
+          ],
+          "certainty": "verified",
+          "startFrame": 318,
+          "endFrame": 367,
+          "order": 1
+        },
+        {
+          "id": "event_1_02",
+          "propositionId": "prop_odometer_continues",
+          "beatId": "odometer_same_car",
+          "eventKind": "state_transition",
+          "predicate": "continues_while_display_is_zero",
+          "semanticOperation": "continue_vehicle",
+          "subjectEntityId": "odometer_vehicle",
+          "objectEntityIds": [],
+          "focusEntityIds": [
+            "odometer_vehicle"
+          ],
+          "certainty": "verified",
+          "startFrame": 377,
+          "endFrame": 421,
+          "order": 2
+        }
+      ],
+      "layout": {
+        "profileId": "deterministic_semantic_graph_layout_v2",
+        "profileVersion": "2.0.0",
+        "canvas": {
+          "width": 1080,
+          "height": 1920
+        },
+        "regions": {
+          "visualRoi": {
+            "x": 72,
+            "y": 276,
+            "width": 936,
+            "height": 1068
+          },
+          "captionLane": {
+            "x": 0,
+            "y": 1416,
+            "width": 1080,
+            "height": 504
+          }
+        },
+        "nodes": [
+          {
+            "entityId": "odometer_wheel_bank",
+            "order": 0,
+            "role": "participant",
+            "bounds": {
+              "x": 72,
+              "y": 732,
+              "width": 176,
+              "height": 156
+            }
+          },
+          {
+            "entityId": "odometer_zero",
+            "order": 1,
+            "role": "focus",
+            "bounds": {
+              "x": 438,
+              "y": 744,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "odometer_vehicle",
+            "order": 2,
+            "role": "participant",
+            "bounds": {
+              "x": 840,
+              "y": 744,
+              "width": 160,
+              "height": 132
+            }
+          }
+        ],
+        "edges": [
+          {
+            "relationId": "relation_1_00",
+            "fromEntityId": "odometer_wheel_bank",
+            "toEntityId": "odometer_zero",
+            "kind": "line",
+            "points": [
+              {
+                "x": 160,
+                "y": 810
+              },
+              {
+                "x": 540,
+                "y": 810
+              }
+            ]
+          },
+          {
+            "relationId": "relation_1_01",
+            "fromEntityId": "odometer_zero",
+            "toEntityId": "odometer_wheel_bank",
+            "kind": "line",
+            "points": [
+              {
+                "x": 540,
+                "y": 810
+              },
+              {
+                "x": 160,
+                "y": 810
+              }
+            ]
+          }
+        ],
+        "constraints": {
+          "maximumSimultaneousMotion": 2,
+          "minimumSettledHoldFrames": 8
+        }
+      },
+      "tracks": [
+        {
+          "id": "track_1_00",
+          "targetKind": "relation",
+          "targetId": "relation_1_00",
+          "operation": "draw",
+          "startFrame": 272,
+          "endFrame": 289,
+          "easing": "ease_out_cubic",
+          "order": 0
+        },
+        {
+          "id": "track_1_01",
+          "targetKind": "entity",
+          "targetId": "odometer_zero",
+          "operation": "focus",
+          "startFrame": 289,
+          "endFrame": 307,
+          "easing": "ease_out_cubic",
+          "order": 1
+        },
+        {
+          "id": "track_1_02",
+          "targetKind": "relation",
+          "targetId": "relation_1_01",
+          "operation": "draw",
+          "startFrame": 318,
+          "endFrame": 342,
+          "easing": "ease_out_cubic",
+          "order": 2
+        },
+        {
+          "id": "track_1_03",
+          "targetKind": "entity",
+          "targetId": "odometer_zero",
+          "operation": "focus",
+          "startFrame": 342,
+          "endFrame": 367,
+          "easing": "ease_out_cubic",
+          "order": 3
+        },
+        {
+          "id": "track_1_04",
+          "targetKind": "entity",
+          "targetId": "odometer_vehicle",
+          "operation": "state_change",
+          "startFrame": 377,
+          "endFrame": 399,
+          "easing": "ease_out_cubic",
+          "order": 4
+        },
+        {
+          "id": "track_1_05",
+          "targetKind": "entity",
+          "targetId": "odometer_vehicle",
+          "operation": "focus",
+          "startFrame": 399,
+          "endFrame": 421,
+          "easing": "ease_out_cubic",
+          "order": 5
+        }
+      ],
+      "compositionFingerprint": "b9fbbd6afe41496da4e9a404269d4fd44fdd0ef7f0a9f18c7f5a5d152b4d7c4e"
+    },
+    {
+      "id": "visual_scene_02",
+      "entityIds": [
+        "odometer_wheel_bank",
+        "odometer_vehicle"
+      ],
+      "propositionIds": [
+        "prop_odometer_payoff"
+      ],
+      "layoutIntent": "radial_focus",
+      "focusEntityId": "odometer_wheel_bank",
+      "startFrame": 431,
+      "endFrame": 537,
+      "readabilityHold": {
+        "startFrame": 529,
+        "endFrame": 537
+      },
+      "entities": [
+        {
+          "id": "odometer_wheel_bank",
+          "kind": "wheel_bank",
+          "visualSubjectKind": "wheel_bank",
+          "label": "SIX NUMBER WHEELS",
+          "persistent": true,
+          "claimIds": [
+            "claim_odometer_wheels",
+            "claim_odometer_carry"
+          ]
+        },
+        {
+          "id": "odometer_vehicle",
+          "kind": "vehicle",
+          "visualSubjectKind": "vehicle",
+          "label": "SAME CAR",
+          "persistent": true,
+          "claimIds": [
+            "claim_odometer_machine",
+            "claim_odometer_continues"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "id": "relation_2_00",
+          "propositionId": "prop_odometer_payoff",
+          "fromEntityId": "odometer_wheel_bank",
+          "toEntityId": "odometer_vehicle",
+          "predicate": "finite_display_resets_not_vehicle",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 0
+        }
+      ],
+      "events": [
+        {
+          "id": "event_2_00",
+          "propositionId": "prop_odometer_payoff",
+          "beatId": "odometer_payoff",
+          "eventKind": "state_transition",
+          "predicate": "finite_display_resets_not_vehicle",
+          "semanticOperation": "contrast_reset",
+          "subjectEntityId": "odometer_wheel_bank",
+          "objectEntityIds": [
+            "odometer_vehicle"
+          ],
+          "focusEntityIds": [
+            "odometer_wheel_bank"
+          ],
+          "certainty": "verified",
+          "startFrame": 431,
+          "endFrame": 492,
+          "order": 0
+        }
+      ],
+      "layout": {
+        "profileId": "deterministic_semantic_graph_layout_v2",
+        "profileVersion": "2.0.0",
+        "canvas": {
+          "width": 1080,
+          "height": 1920
+        },
+        "regions": {
+          "visualRoi": {
+            "x": 72,
+            "y": 276,
+            "width": 936,
+            "height": 1068
+          },
+          "captionLane": {
+            "x": 0,
+            "y": 1416,
+            "width": 1080,
+            "height": 504
+          }
+        },
+        "nodes": [
+          {
+            "entityId": "odometer_wheel_bank",
+            "order": 0,
+            "role": "focus",
+            "bounds": {
+              "x": 360,
+              "y": 732,
+              "width": 360,
+              "height": 156
+            }
+          },
+          {
+            "entityId": "odometer_vehicle",
+            "order": 1,
+            "role": "participant",
+            "bounds": {
+              "x": 438,
+              "y": 414,
+              "width": 204,
+              "height": 132
+            }
+          }
+        ],
+        "edges": [
+          {
+            "relationId": "relation_2_00",
+            "fromEntityId": "odometer_wheel_bank",
+            "toEntityId": "odometer_vehicle",
+            "kind": "line",
+            "points": [
+              {
+                "x": 540,
+                "y": 810
+              },
+              {
+                "x": 540,
+                "y": 480
+              }
+            ]
+          }
+        ],
+        "constraints": {
+          "maximumSimultaneousMotion": 2,
+          "minimumSettledHoldFrames": 8
+        }
+      },
+      "tracks": [
+        {
+          "id": "track_2_00",
+          "targetKind": "relation",
+          "targetId": "relation_2_00",
+          "operation": "draw",
+          "startFrame": 431,
+          "endFrame": 461,
+          "easing": "ease_out_cubic",
+          "order": 0
+        },
+        {
+          "id": "track_2_01",
+          "targetKind": "entity",
+          "targetId": "odometer_wheel_bank",
+          "operation": "focus",
+          "startFrame": 461,
+          "endFrame": 492,
+          "easing": "ease_out_cubic",
+          "order": 1
+        }
+      ],
+      "compositionFingerprint": "05b18b5a2211fd3d5579906a92f82c081d9a86647152489433902235c6edd972"
+    }
+  ],
+  "contentHash": "383ef7722b752eb5b4c42201fbb2c926c234e3057ebbe08e1a8cd17d9886500f"
+}

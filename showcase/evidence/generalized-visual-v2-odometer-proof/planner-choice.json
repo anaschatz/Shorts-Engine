@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "startPropositionIndex": 0,
+      "endPropositionIndexExclusive": 4,
+      "layoutIntent": "directed_flow",
+      "focusEntityIndex": 1
+    },
+    {
+      "startPropositionIndex": 4,
+      "endPropositionIndexExclusive": 7,
+      "layoutIntent": "timeline_track",
+      "focusEntityIndex": 5
+    },
+    {
+      "startPropositionIndex": 7,
+      "endPropositionIndexExclusive": 8,
+      "layoutIntent": "radial_focus",
+      "focusEntityIndex": 1
+    }
+  ],
+  "contentHash": "b217eb248067c7349bdec3792d70d13a2e41662b6a85397341d107ea7067daae"
+}

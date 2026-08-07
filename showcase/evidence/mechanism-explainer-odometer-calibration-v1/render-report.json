@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism_explainer_calibration_render_report_v1",
+  "status": "human_review_pending",
+  "publishable": false,
+  "generatedAt": "2026-07-30T15:47:19.621Z",
+  "storyId": "odometer",
+  "output": {
+    "path": "showcase/assets/mechanism-explainer-odometer-calibration-v1.mp4",
+    "sha256": "25422c82386e86388066d7c767b8b4f54de4cc5ed45a15d42293bab4def7bfc4",
+    "bytes": 968275
+  },
+  "contactSheet": {
+    "path": "showcase/assets/mechanism-explainer-odometer-calibration-v1-contact-sheet.png",
+    "sha256": "68d09ce3f1491eb8397ca903c17604d136ca649a6718364ab531d509f564541c",
+    "bytes": 172524
+  },
+  "compilation": {
+    "profileId": "mechanism-explainer-v1",
+    "compositionHash": "81f59e169e250cf78b39372c647612c0deb23fcf20348e1008b7a9b3199f1821",
+    "storySpecHash": "cb7dfd171523995236ec80c9736cbfcdaa199e7f4ab857199adcea40980f57bf",
+    "deterministicCompile": true,
+    "fixedGeometryHash": "9caff9630e0eb1c19ae6527eab03c8dd641c18adb79219352923cb3fc9169353",
+    "primaryTransform": "translate(540 580)"
+  },
+  "audio": {
+    "audioSha256": "b4f0fbe94898747a0ba25d939da64a3e14d24f9c5a657e216c5dd19ce6f6196a",
+    "durationSamples": 859200,
+    "expectedSamples": 859200,
+    "sampleRate": 48000,
+    "exactFrameClock": true,
+    "commercialUseAttested": false
+  },
+  "captions": {
+    "manifestHash": "85126722daef7de038339c1835ef1649497325357ca19018a6a62d71a4ddff67",
+    "cueCount": 7,
+    "wordCount": 49,
+    "themeId": "human_readable_purple_v1",
+    "timingMode": "frame_boundary_floor_v1",
+    "burnedIn": true,
+    "sidecarVtt": true
+  },
+  "technicalProbe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frameCount": 537,
+    "durationSeconds": 17.9,
+    "videoStreamCount": 1,
+    "videoCodec": "h264",
+    "pixelFormat": "yuv420p",
+    "audioStreamCount": 1,
+    "audioCodec": "aac",
+    "audioSampleRate": 48000,
+    "audioDurationSeconds": 17.9,
+    "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+  },
+  "blockers": [
+    "CALIBRATION_ONLY",
+    "COMMERCIAL_USE_ATTESTATION_REQUIRED",
+    "HUMAN_CREATIVE_REVIEW_REQUIRED"
+  ]
+}

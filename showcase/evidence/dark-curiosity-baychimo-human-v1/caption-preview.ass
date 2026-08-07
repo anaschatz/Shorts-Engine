@@ -1,0 +1,33 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 720
+PlayResY: 1280
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Narration,Arial,54,&H00FA8BA7,&H00FFFFFF,&H00030303,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,58,58,179,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:01.20,Narration,,0,0,0,,{\kf13}In {\kf107}1931,
+Dialogue: 0,0:00:01.73,0:00:02.56,Narration,,0,0,0,,{\kf7}a {\kf27}crew {\kf23}looked {\kf27}out
+Dialogue: 0,0:00:02.56,0:00:04.00,Narration,,0,0,0,,{\kf37}after {\kf13}a {\kf27}blizzard {\kf47}and {\kf20}found
+Dialogue: 0,0:00:04.00,0:00:04.93,Narration,,0,0,0,,{\kf20}the {\kf20}ship {\kf20}they {\kf13}had {\kf20}left
+Dialogue: 0,0:00:04.93,0:00:06.00,Narration,,0,0,0,,{\kf23}in {\kf13}the {\kf17}ice {\kf27}was {\kf27}gone.
+Dialogue: 0,0:00:06.63,0:00:07.70,Narration,,0,0,0,,{\kf17}They {\kf40}assumed {\kf17}it {\kf13}had {\kf20}sunk,
+Dialogue: 0,0:00:08.20,0:00:09.50,Narration,,0,0,0,,{\kf17}but {\kf30}local {\kf37}hunters {\kf47}soon
+Dialogue: 0,0:00:09.50,0:00:11.00,Narration,,0,0,0,,{\kf47}spotted {\kf17}the\N{\kf37}abandoned {\kf50}steamer
+Dialogue: 0,0:00:11.00,0:00:12.50,Narration,,0,0,0,,{\kf33}near {\kf17}the {\kf53}Alaskan {\kf47}coast.
+Dialogue: 0,0:00:12.93,0:00:14.26,Narration,,0,0,0,,{\kf23}Over {\kf13}the {\kf40}following {\kf57}years,
+Dialogue: 0,0:00:14.53,0:00:16.06,Narration,,0,0,0,,{\kf23}people {\kf33}saw {\kf37}and {\kf60}sometimes
+Dialogue: 0,0:00:16.06,0:00:16.96,Narration,,0,0,0,,{\kf60}boarded {\kf13}the {\kf17}ship
+Dialogue: 0,0:00:16.96,0:00:18.36,Narration,,0,0,0,,{\kf27}without {\kf13}a {\kf27}crew {\kf63}as {\kf10}it
+Dialogue: 0,0:00:18.36,0:00:19.93,Narration,,0,0,0,,{\kf40}drifted {\kf23}with\N{\kf30}Arctic {\kf27}pack {\kf37}ice.
+Dialogue: 0,0:00:20.53,0:00:22.06,Narration,,0,0,0,,{\kf23}The {\kf30}latest {\kf43}company {\kf57}archive
+Dialogue: 0,0:00:22.06,0:00:24.23,Narration,,0,0,0,,{\kf43}record {\kf37}dates {\kf27}to {\kf110}1969,
+Dialogue: 0,0:00:24.96,0:00:26.76,Narration,,0,0,0,,{\kf33}decades {\kf53}after {\kf17}the\N{\kf20}ship {\kf20}was {\kf37}abandoned.
+Dialogue: 0,0:00:27.26,0:00:29.96,Narration,,0,0,0,,{\kf43}The {\kf20}case {\kf53}documents {\kf27}an\N{\kf73}extraordinary {\kf53}drift,
+Dialogue: 0,0:00:30.33,0:00:31.96,Narration,,0,0,0,,{\kf17}not {\kf17}a {\kf53}supernatural\N{\kf40}ghost {\kf37}ship.
+Dialogue: 0,0:00:32.43,0:00:34.36,Narration,,0,0,0,,{\kf30}Its {\kf33}final {\kf33}fate\N{\kf47}remains {\kf50}unknown.

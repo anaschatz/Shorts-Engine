@@ -1,0 +1,2563 @@
+{
+  "schemaVersion": 2,
+  "proofProfile": "generalized_visual_composition_v2_cross_story_comparison",
+  "publishable": false,
+  "humanReviewStatus": "pending",
+  "humanApproved": false,
+  "productionReady": false,
+  "stories": [
+    "gps",
+    "odometer",
+    "baychimo"
+  ],
+  "sameStyleHash": true,
+  "distinctProgramHashes": true,
+  "pairwiseComparisons": [
+    {
+      "leftStoryId": "gps",
+      "rightStoryId": "odometer",
+      "sceneFingerprintOverlap": []
+    },
+    {
+      "leftStoryId": "gps",
+      "rightStoryId": "baychimo",
+      "sceneFingerprintOverlap": []
+    },
+    {
+      "leftStoryId": "odometer",
+      "rightStoryId": "baychimo",
+      "sceneFingerprintOverlap": []
+    }
+  ],
+  "crossStorySceneFingerprintOverlap": [],
+  "repetitionReport": {
+    "schemaVersion": 1,
+    "profile": "visual_program_v2_repetition_report_v1",
+    "passed": true,
+    "failClosed": true,
+    "policy": {
+      "adjacency": "exact_or_three_descriptor_near_match_rejected",
+      "crossStory": "all_scene_pairs_exact_or_three_descriptor_near_match_rejected",
+      "persistentEntityIsNovelty": false,
+      "occupancyGrid": {
+        "columns": 6,
+        "rows": 8
+      },
+      "motionBuckets": 16
+    },
+    "programs": [
+      {
+        "storyId": "gps",
+        "programIndex": 0,
+        "programHash": "3c4b49cfe99df1de1499fa25c0b0a25965181a5b77c7d305ded2b3f18a07ac48",
+        "sourceSemanticEventGraphHash": "1b716915a3e8a07c021eadf116242e7458ba01acdf650f5ffed2cec27875b7c7",
+        "scenes": [
+          {
+            "storyId": "gps",
+            "programIndex": 0,
+            "sceneIndex": 0,
+            "sceneId": "visual_scene_00",
+            "programHash": "3c4b49cfe99df1de1499fa25c0b0a25965181a5b77c7d305ded2b3f18a07ac48",
+            "sourceSemanticEventGraphHash": "1b716915a3e8a07c021eadf116242e7458ba01acdf650f5ffed2cec27875b7c7",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "satellite",
+                    "visualSubjectKind": "satellite"
+                  },
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  },
+                  {
+                    "kind": "receiver",
+                    "visualSubjectKind": "receiver"
+                  },
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  }
+                ],
+                "focusEntity": 1,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "transmits_week_value",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 1,
+                    "to": 2,
+                    "predicate": "encoded_by_ten_bits",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 1,
+                    "to": 3,
+                    "predicate": "reaches_limit",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 3,
+                    "to": 1,
+                    "predicate": "has_next_value",
+                    "polarity": "negated",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "transmits_week_value",
+                    "semanticOperation": "connect_entities",
+                    "subject": 0,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "encoded_by_ten_bits",
+                    "semanticOperation": "connect_entities",
+                    "subject": 1,
+                    "objects": [
+                      2
+                    ],
+                    "focus": [
+                      2
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "reaches_limit",
+                    "semanticOperation": "connect_entities",
+                    "subject": 1,
+                    "objects": [
+                      3
+                    ],
+                    "focus": [
+                      3
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "has_next_value",
+                    "semanticOperation": "connect_entities",
+                    "subject": 3,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      3
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "a867998688c3845a23a59b839f76d1c6f99cbcc95836ea3b7c6406ee729a6225"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 2
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "focus",
+                    "start": 2,
+                    "end": 4
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 1,
+                    "operation": "draw",
+                    "start": 4,
+                    "end": 6
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 2,
+                    "operation": "focus",
+                    "start": 6,
+                    "end": 8
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 2,
+                    "operation": "draw",
+                    "start": 9,
+                    "end": 10
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 3,
+                    "operation": "focus",
+                    "start": 10,
+                    "end": 12
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 3,
+                    "operation": "draw",
+                    "start": 13,
+                    "end": 14
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 3,
+                    "operation": "focus",
+                    "start": 14,
+                    "end": 16
+                  }
+                ],
+                "hash": "46ed8ee1e21967597ebced117ebee70007fa2e40c791e6e1db7a4c7e3d5365ee"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  1,
+                  1,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "focusCell": 26,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "participant",
+                    "cell": 24
+                  },
+                  {
+                    "order": 1,
+                    "role": "focus",
+                    "cell": 26
+                  },
+                  {
+                    "order": 2,
+                    "role": "participant",
+                    "cell": 27
+                  },
+                  {
+                    "order": 3,
+                    "role": "participant",
+                    "cell": 29
+                  }
+                ],
+                "hash": "7ce58b709ff60bdacb219e6a5144ef1fe8bf8c2d30250947264ca5a10b0ff03f"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "a867998688c3845a23a59b839f76d1c6f99cbcc95836ea3b7c6406ee729a6225",
+              "motion": "46ed8ee1e21967597ebced117ebee70007fa2e40c791e6e1db7a4c7e3d5365ee",
+              "occupancy": "7ce58b709ff60bdacb219e6a5144ef1fe8bf8c2d30250947264ca5a10b0ff03f",
+              "exact": "063fdcc4e651518c639522175ad3180e70525f5a6a4831e2688923c41bc0ff40",
+              "near": "40868c0e5af414871fe96a9fd9c48d548c7be7c9c70e11d2fa1ae10b12b02e6d"
+            }
+          },
+          {
+            "storyId": "gps",
+            "programIndex": 0,
+            "sceneIndex": 1,
+            "sceneId": "visual_scene_01",
+            "programHash": "3c4b49cfe99df1de1499fa25c0b0a25965181a5b77c7d305ded2b3f18a07ac48",
+            "sourceSemanticEventGraphHash": "1b716915a3e8a07c021eadf116242e7458ba01acdf650f5ffed2cec27875b7c7",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  },
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  },
+                  {
+                    "kind": "receiver",
+                    "visualSubjectKind": "receiver"
+                  },
+                  {
+                    "kind": "calendar",
+                    "visualSubjectKind": "calendar"
+                  },
+                  {
+                    "kind": "clock",
+                    "visualSubjectKind": "clock"
+                  }
+                ],
+                "focusEntity": 3,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "rolls_over_to",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 3,
+                    "predicate": "maps_zero_to_previous_cycle",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 3,
+                    "to": 4,
+                    "predicate": "contrasts_with_real_time",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "state_transition",
+                    "predicate": "rolls_over_to",
+                    "semanticOperation": "replace_value",
+                    "subject": 0,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "maps_zero_to_previous_cycle",
+                    "semanticOperation": "connect_entities",
+                    "subject": 2,
+                    "objects": [
+                      3
+                    ],
+                    "focus": [
+                      3
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "contrasts_with_real_time",
+                    "semanticOperation": "connect_entities",
+                    "subject": 3,
+                    "objects": [
+                      4
+                    ],
+                    "focus": [
+                      3
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "54d869fccbc032639030c681108bba47dac62209117ffa595579cdfef7d2abcc"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 3
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "focus",
+                    "start": 3,
+                    "end": 5
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 1,
+                    "operation": "draw",
+                    "start": 6,
+                    "end": 9
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 3,
+                    "operation": "focus",
+                    "start": 9,
+                    "end": 12
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 2,
+                    "operation": "draw",
+                    "start": 12,
+                    "end": 14
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 3,
+                    "operation": "focus",
+                    "start": 14,
+                    "end": 16
+                  }
+                ],
+                "hash": "9948b7be64ae5428c301c60b6f3e8511a54f636589b5ad6807ee1a845ac2cbbb"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  1,
+                  0,
+                  1,
+                  1,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "focusCell": 28,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "participant",
+                    "cell": 24
+                  },
+                  {
+                    "order": 1,
+                    "role": "participant",
+                    "cell": 25
+                  },
+                  {
+                    "order": 2,
+                    "role": "participant",
+                    "cell": 27
+                  },
+                  {
+                    "order": 3,
+                    "role": "focus",
+                    "cell": 28
+                  },
+                  {
+                    "order": 4,
+                    "role": "participant",
+                    "cell": 29
+                  }
+                ],
+                "hash": "e75784149d6ba140cc3d7453b54d350764e238f0f2fdeac5a2fe0fa22fe2a878"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "54d869fccbc032639030c681108bba47dac62209117ffa595579cdfef7d2abcc",
+              "motion": "9948b7be64ae5428c301c60b6f3e8511a54f636589b5ad6807ee1a845ac2cbbb",
+              "occupancy": "e75784149d6ba140cc3d7453b54d350764e238f0f2fdeac5a2fe0fa22fe2a878",
+              "exact": "e11c0b94a5b7287d822596775bdd7d8180e7e2a92404531b18e3151b5271b70d",
+              "near": "5fdec55d9935f569bedc79bd4930b7f8af89cd8ee67fce9235265251c6a51ded"
+            }
+          },
+          {
+            "storyId": "gps",
+            "programIndex": 0,
+            "sceneIndex": 2,
+            "sceneId": "visual_scene_02",
+            "programHash": "3c4b49cfe99df1de1499fa25c0b0a25965181a5b77c7d305ded2b3f18a07ac48",
+            "sourceSemanticEventGraphHash": "1b716915a3e8a07c021eadf116242e7458ba01acdf650f5ffed2cec27875b7c7",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "clock",
+                    "visualSubjectKind": "clock"
+                  },
+                  {
+                    "kind": "calendar",
+                    "visualSubjectKind": "calendar"
+                  },
+                  {
+                    "kind": "document",
+                    "visualSubjectKind": "document"
+                  },
+                  {
+                    "kind": "receiver",
+                    "visualSubjectKind": "receiver"
+                  },
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  }
+                ],
+                "focusEntity": 3,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "continues_forward_to",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 3,
+                    "predicate": "corrects_mapping",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 3,
+                    "to": 1,
+                    "predicate": "maps_to_correct_cycle",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 4,
+                    "to": 0,
+                    "predicate": "repeats_while_time_continues",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "continues_forward_to",
+                    "semanticOperation": "connect_entities",
+                    "subject": 0,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      0
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "corrects_mapping",
+                    "semanticOperation": "connect_entities",
+                    "subject": 2,
+                    "objects": [
+                      3
+                    ],
+                    "focus": [
+                      3
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "maps_to_correct_cycle",
+                    "semanticOperation": "connect_entities",
+                    "subject": 3,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "repeats_while_time_continues",
+                    "semanticOperation": "connect_entities",
+                    "subject": 4,
+                    "objects": [
+                      0
+                    ],
+                    "focus": [
+                      0
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "0b40b40ae01d1ab7615ec29ea105e2a680c91a57cca3b03b508dc3511d2e40a5"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 1
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 0,
+                    "operation": "focus",
+                    "start": 1,
+                    "end": 3
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 1,
+                    "operation": "draw",
+                    "start": 3,
+                    "end": 5
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 3,
+                    "operation": "focus",
+                    "start": 5,
+                    "end": 7
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 2,
+                    "operation": "draw",
+                    "start": 8,
+                    "end": 9
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "focus",
+                    "start": 9,
+                    "end": 11
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 3,
+                    "operation": "draw",
+                    "start": 11,
+                    "end": 13
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 0,
+                    "operation": "focus",
+                    "start": 13,
+                    "end": 14
+                  }
+                ],
+                "hash": "c60f61da0c39ecefb95eaafaf52bcc52cf169413a64d595f3c0f9928ebeeac9e"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "focusCell": 37,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "participant",
+                    "cell": 9
+                  },
+                  {
+                    "order": 1,
+                    "role": "participant",
+                    "cell": 22
+                  },
+                  {
+                    "order": 2,
+                    "role": "participant",
+                    "cell": 40
+                  },
+                  {
+                    "order": 3,
+                    "role": "focus",
+                    "cell": 37
+                  },
+                  {
+                    "order": 4,
+                    "role": "participant",
+                    "cell": 19
+                  }
+                ],
+                "hash": "9c19156c0cbc08ed7e3bc01d666e8f406202a747c30afb5f19517e9e878eec4f"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "0b40b40ae01d1ab7615ec29ea105e2a680c91a57cca3b03b508dc3511d2e40a5",
+              "motion": "c60f61da0c39ecefb95eaafaf52bcc52cf169413a64d595f3c0f9928ebeeac9e",
+              "occupancy": "9c19156c0cbc08ed7e3bc01d666e8f406202a747c30afb5f19517e9e878eec4f",
+              "exact": "7daa9f2114e4b407cc1f073145e05594e91b8f9b252a375c45a69238453d6db2",
+              "near": "82a2741b3cc2816a72e2948e9dec90307b632b9ab97cc105688b5bd943f1d8f4"
+            }
+          }
+        ]
+      },
+      {
+        "storyId": "odometer",
+        "programIndex": 1,
+        "programHash": "383ef7722b752eb5b4c42201fbb2c926c234e3057ebbe08e1a8cd17d9886500f",
+        "sourceSemanticEventGraphHash": "bc7f784640b6a0fb2e6eab88e3872d910c420a606f8b29958963b8453bc17037",
+        "scenes": [
+          {
+            "storyId": "odometer",
+            "programIndex": 1,
+            "sceneIndex": 0,
+            "sceneId": "visual_scene_00",
+            "programHash": "383ef7722b752eb5b4c42201fbb2c926c234e3057ebbe08e1a8cd17d9886500f",
+            "sourceSemanticEventGraphHash": "bc7f784640b6a0fb2e6eab88e3872d910c420a606f8b29958963b8453bc17037",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "vehicle",
+                    "visualSubjectKind": "vehicle"
+                  },
+                  {
+                    "kind": "wheel_bank",
+                    "visualSubjectKind": "wheel_bank"
+                  },
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  },
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  },
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  }
+                ],
+                "focusEntity": 1,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "contains_six_wheels",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 1,
+                    "predicate": "carries_to_next_wheel",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 1,
+                    "to": 4,
+                    "predicate": "sets_all_wheels_to_nine",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 4,
+                    "to": 1,
+                    "predicate": "carries_through_all_wheels",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "contains_six_wheels",
+                    "semanticOperation": "connect_entities",
+                    "subject": 0,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "carries_to_next_wheel",
+                    "semanticOperation": "propagate_carry",
+                    "subject": 2,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      1,
+                      3
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "sets_all_wheels_to_nine",
+                    "semanticOperation": "connect_entities",
+                    "subject": 1,
+                    "objects": [
+                      4
+                    ],
+                    "focus": [
+                      4
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "carries_through_all_wheels",
+                    "semanticOperation": "propagate_carry",
+                    "subject": 4,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      1
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "0057f85c4c73766a5c7157cfe7be5504f35e75f5724de3e6484ddf69ccece07c"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 2
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "focus",
+                    "start": 2,
+                    "end": 4
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 1,
+                    "operation": "draw",
+                    "start": 5,
+                    "end": 9
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "propagate_carry",
+                    "start": 5,
+                    "end": 9
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 2,
+                    "operation": "draw",
+                    "start": 10,
+                    "end": 12
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 4,
+                    "operation": "focus",
+                    "start": 12,
+                    "end": 14
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 3,
+                    "operation": "draw",
+                    "start": 14,
+                    "end": 16
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "propagate_carry",
+                    "start": 14,
+                    "end": 16
+                  }
+                ],
+                "hash": "43a93d39939f802820efd4d46206f137d1aec8c903abfb67c3b661e5e3e62027"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  1,
+                  0,
+                  1,
+                  1,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "focusCell": 2,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "participant",
+                    "cell": 0
+                  },
+                  {
+                    "order": 1,
+                    "role": "focus",
+                    "cell": 2
+                  },
+                  {
+                    "order": 2,
+                    "role": "participant",
+                    "cell": 3
+                  },
+                  {
+                    "order": 3,
+                    "role": "participant",
+                    "cell": 5
+                  },
+                  {
+                    "order": 4,
+                    "role": "participant",
+                    "cell": 45
+                  }
+                ],
+                "hash": "f1fba56c474133adddc8dc25539c2eb63efe345e6e6a651a894eecd7bcff7162"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "0057f85c4c73766a5c7157cfe7be5504f35e75f5724de3e6484ddf69ccece07c",
+              "motion": "43a93d39939f802820efd4d46206f137d1aec8c903abfb67c3b661e5e3e62027",
+              "occupancy": "f1fba56c474133adddc8dc25539c2eb63efe345e6e6a651a894eecd7bcff7162",
+              "exact": "4571a7b9467d7bfaa7b28ed6fc5f6081db42279d7dd51df6d264d932f9987428",
+              "near": "a3f6b04dd78b570c20c39744fe463b29a3ff6dd229ae5cec687e3e64e8290337"
+            }
+          },
+          {
+            "storyId": "odometer",
+            "programIndex": 1,
+            "sceneIndex": 1,
+            "sceneId": "visual_scene_01",
+            "programHash": "383ef7722b752eb5b4c42201fbb2c926c234e3057ebbe08e1a8cd17d9886500f",
+            "sourceSemanticEventGraphHash": "bc7f784640b6a0fb2e6eab88e3872d910c420a606f8b29958963b8453bc17037",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "wheel_bank",
+                    "visualSubjectKind": "wheel_bank"
+                  },
+                  {
+                    "kind": "numeric_token",
+                    "visualSubjectKind": "numeric_token"
+                  },
+                  {
+                    "kind": "vehicle",
+                    "visualSubjectKind": "vehicle"
+                  }
+                ],
+                "focusEntity": 1,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "rolls_over_to",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 1,
+                    "to": 0,
+                    "predicate": "displayed_by_wheel_bank",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "state_transition",
+                    "predicate": "rolls_over_to",
+                    "semanticOperation": "replace_value",
+                    "subject": 0,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "causal_action",
+                    "predicate": "displayed_by_wheel_bank",
+                    "semanticOperation": "connect_entities",
+                    "subject": 1,
+                    "objects": [
+                      0
+                    ],
+                    "focus": [
+                      1,
+                      0
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "state_transition",
+                    "predicate": "continues_while_display_is_zero",
+                    "semanticOperation": "continue_vehicle",
+                    "subject": 2,
+                    "objects": [],
+                    "focus": [
+                      2
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "a0e4ac87a390e2200ab094ba982c2bb65e9e4cb4ce456d91b97c2c137b9ca0af"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 2
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "focus",
+                    "start": 2,
+                    "end": 4
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 1,
+                    "operation": "draw",
+                    "start": 5,
+                    "end": 7
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "focus",
+                    "start": 7,
+                    "end": 10
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 2,
+                    "operation": "state_change",
+                    "start": 11,
+                    "end": 13
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 2,
+                    "operation": "focus",
+                    "start": 13,
+                    "end": 16
+                  }
+                ],
+                "hash": "9088f98d3ef4407113ef3d8427dbef47c9fcd3097543848f13c8556c9ad836e8"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  1,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "focusCell": 27,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "participant",
+                    "cell": 24
+                  },
+                  {
+                    "order": 1,
+                    "role": "focus",
+                    "cell": 27
+                  },
+                  {
+                    "order": 2,
+                    "role": "participant",
+                    "cell": 29
+                  }
+                ],
+                "hash": "951f2c18211e0b9ad7671911c15f178d0f1d9693bdd49745ec1183cdeda6826c"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "a0e4ac87a390e2200ab094ba982c2bb65e9e4cb4ce456d91b97c2c137b9ca0af",
+              "motion": "9088f98d3ef4407113ef3d8427dbef47c9fcd3097543848f13c8556c9ad836e8",
+              "occupancy": "951f2c18211e0b9ad7671911c15f178d0f1d9693bdd49745ec1183cdeda6826c",
+              "exact": "05b906a6c4230644e4da7312c71d8c273d6f7b16620f153a48f6645ada8825bd",
+              "near": "c235aa100d90a5f0bd5a33db392faf52ac63410083dda4475baf425744921313"
+            }
+          },
+          {
+            "storyId": "odometer",
+            "programIndex": 1,
+            "sceneIndex": 2,
+            "sceneId": "visual_scene_02",
+            "programHash": "383ef7722b752eb5b4c42201fbb2c926c234e3057ebbe08e1a8cd17d9886500f",
+            "sourceSemanticEventGraphHash": "bc7f784640b6a0fb2e6eab88e3872d910c420a606f8b29958963b8453bc17037",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "wheel_bank",
+                    "visualSubjectKind": "wheel_bank"
+                  },
+                  {
+                    "kind": "vehicle",
+                    "visualSubjectKind": "vehicle"
+                  }
+                ],
+                "focusEntity": 0,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "finite_display_resets_not_vehicle",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "state_transition",
+                    "predicate": "finite_display_resets_not_vehicle",
+                    "semanticOperation": "contrast_reset",
+                    "subject": 0,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      0
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "49bf163ee99f87f6f9ee22a0f70f9fa32383a28185dd05cbc45b62e34c318842"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 5
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 0,
+                    "operation": "focus",
+                    "start": 5,
+                    "end": 10
+                  }
+                ],
+                "hash": "a87a804cb57460a0f1f57f5893dbf604ac27d66907ddbdf575232dc18f37d106"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "focusCell": 27,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "focus",
+                    "cell": 27
+                  },
+                  {
+                    "order": 1,
+                    "role": "participant",
+                    "cell": 9
+                  }
+                ],
+                "hash": "cb82b5e302b41cef36fc71cd917ba5775feb3d9806a4d2afdd9485e518bb1699"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "49bf163ee99f87f6f9ee22a0f70f9fa32383a28185dd05cbc45b62e34c318842",
+              "motion": "a87a804cb57460a0f1f57f5893dbf604ac27d66907ddbdf575232dc18f37d106",
+              "occupancy": "cb82b5e302b41cef36fc71cd917ba5775feb3d9806a4d2afdd9485e518bb1699",
+              "exact": "abfbb30a37fc95f7dec66b72f4b1ed2372886686b36bfd9561aba64bfac61c38",
+              "near": "f3046a794166ca9f593cf57b137dfe19b7ea0e6083b0357d5cac06a6a01ea92b"
+            }
+          }
+        ]
+      },
+      {
+        "storyId": "baychimo",
+        "programIndex": 2,
+        "programHash": "8ed9a0e3b6e1499c4f8fc8c9d3168e0acde5c7aa3d3933c7f64be1bd2f083347",
+        "sourceSemanticEventGraphHash": "0f999495fc4ebd07f652b9ed5af7e49976cfe23e7819a12c1a02968bf8ee3bef",
+        "scenes": [
+          {
+            "storyId": "baychimo",
+            "programIndex": 2,
+            "sceneIndex": 0,
+            "sceneId": "visual_scene_00",
+            "programHash": "8ed9a0e3b6e1499c4f8fc8c9d3168e0acde5c7aa3d3933c7f64be1bd2f083347",
+            "sourceSemanticEventGraphHash": "0f999495fc4ebd07f652b9ed5af7e49976cfe23e7819a12c1a02968bf8ee3bef",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "steamship",
+                    "visualSubjectKind": "vessel"
+                  },
+                  {
+                    "kind": "calendar_year",
+                    "visualSubjectKind": "date"
+                  },
+                  {
+                    "kind": "crew_group",
+                    "visualSubjectKind": "observer"
+                  },
+                  {
+                    "kind": "weather_event",
+                    "visualSubjectKind": "environment"
+                  },
+                  {
+                    "kind": "ice_environment",
+                    "visualSubjectKind": "environment"
+                  },
+                  {
+                    "kind": "hypothesis",
+                    "visualSubjectKind": "hypothesis"
+                  }
+                ],
+                "focusEntity": 2,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "event_occurred_in",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 3,
+                    "predicate": "looked_out_after",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 0,
+                    "predicate": "found_ship_absent_from_last_seen_ice",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 4,
+                    "predicate": "found_ship_absent_from_last_seen_ice",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 5,
+                    "predicate": "assumed",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "event_context",
+                    "predicate": "event_occurred_in",
+                    "semanticOperation": "set_year_context",
+                    "subject": 0,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "observation_action",
+                    "predicate": "looked_out_after",
+                    "semanticOperation": "occlude_then_clear_with_blizzard",
+                    "subject": 2,
+                    "objects": [
+                      3
+                    ],
+                    "focus": [
+                      2,
+                      3,
+                      4
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "observed_state_change",
+                    "predicate": "found_ship_absent_from_last_seen_ice",
+                    "semanticOperation": "reveal_empty_last_seen_position",
+                    "subject": 2,
+                    "objects": [
+                      0,
+                      4
+                    ],
+                    "focus": [
+                      0,
+                      4,
+                      2
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "attributed_hypothesis",
+                    "predicate": "assumed",
+                    "semanticOperation": "mark_sinking_as_assumption",
+                    "subject": 2,
+                    "objects": [
+                      5
+                    ],
+                    "focus": [
+                      2,
+                      5
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "1061834da5d4f5c8c893407563152516a5e9d9c4025d233014a0783f926a5e1f"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 1
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "focus",
+                    "start": 1,
+                    "end": 2
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 1,
+                    "operation": "draw",
+                    "start": 3,
+                    "end": 5
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 2,
+                    "operation": "focus",
+                    "start": 5,
+                    "end": 7
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 2,
+                    "operation": "draw",
+                    "start": 7,
+                    "end": 12
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 0,
+                    "operation": "occlude_to_absent",
+                    "start": 7,
+                    "end": 12
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 4,
+                    "operation": "draw",
+                    "start": 13,
+                    "end": 14
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 2,
+                    "operation": "focus",
+                    "start": 14,
+                    "end": 16
+                  }
+                ],
+                "hash": "f3cb7b47ae8be3d361560b3789445c8d46372687100d814f9baafe25f1701882"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  1,
+                  0,
+                  1,
+                  1,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "focusCell": 3,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "participant",
+                    "cell": 0
+                  },
+                  {
+                    "order": 1,
+                    "role": "participant",
+                    "cell": 2
+                  },
+                  {
+                    "order": 2,
+                    "role": "focus",
+                    "cell": 3
+                  },
+                  {
+                    "order": 3,
+                    "role": "participant",
+                    "cell": 5
+                  },
+                  {
+                    "order": 4,
+                    "role": "participant",
+                    "cell": 42
+                  },
+                  {
+                    "order": 5,
+                    "role": "participant",
+                    "cell": 47
+                  }
+                ],
+                "hash": "880374425a20518ad44b33564f1897fbad0eb15274d1a4b2054659ab4f065727"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "1061834da5d4f5c8c893407563152516a5e9d9c4025d233014a0783f926a5e1f",
+              "motion": "f3cb7b47ae8be3d361560b3789445c8d46372687100d814f9baafe25f1701882",
+              "occupancy": "880374425a20518ad44b33564f1897fbad0eb15274d1a4b2054659ab4f065727",
+              "exact": "9a491e63a60583e98dc992ba48b7b77b8dfdb92d72c3b423918a5bff59e3be16",
+              "near": "ae0bde1b53200ed369f428b9a5da5920e749e52b630c5c0387f81e7e5fb420e4"
+            }
+          },
+          {
+            "storyId": "baychimo",
+            "programIndex": 2,
+            "sceneIndex": 1,
+            "sceneId": "visual_scene_01",
+            "programHash": "8ed9a0e3b6e1499c4f8fc8c9d3168e0acde5c7aa3d3933c7f64be1bd2f083347",
+            "sourceSemanticEventGraphHash": "0f999495fc4ebd07f652b9ed5af7e49976cfe23e7819a12c1a02968bf8ee3bef",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "observer_group",
+                    "visualSubjectKind": "observer"
+                  },
+                  {
+                    "kind": "steamship",
+                    "visualSubjectKind": "vessel"
+                  },
+                  {
+                    "kind": "coastal_region",
+                    "visualSubjectKind": "route"
+                  },
+                  {
+                    "kind": "hypothesis",
+                    "visualSubjectKind": "hypothesis"
+                  },
+                  {
+                    "kind": "observer_group",
+                    "visualSubjectKind": "observer"
+                  }
+                ],
+                "focusEntity": 1,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "spotted_abandoned_ship_near",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 0,
+                    "to": 2,
+                    "predicate": "spotted_abandoned_ship_near",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 4,
+                    "to": 1,
+                    "predicate": "saw",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 4,
+                    "to": 1,
+                    "predicate": "sometimes_boarded",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "observation_action",
+                    "predicate": "spotted_abandoned_ship_near",
+                    "semanticOperation": "replace_assumption_with_documented_sighting",
+                    "subject": 0,
+                    "objects": [
+                      1,
+                      2
+                    ],
+                    "focus": [
+                      0,
+                      1,
+                      2,
+                      3
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "state_transition",
+                    "predicate": "continued_into_following_years",
+                    "semanticOperation": "advance_undated_later_years",
+                    "subject": 1,
+                    "objects": [],
+                    "focus": [
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "repeated_observation",
+                    "predicate": "saw",
+                    "semanticOperation": "add_repeated_sighting_markers",
+                    "subject": 4,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      4,
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "repeated_action",
+                    "predicate": "sometimes_boarded",
+                    "semanticOperation": "show_boarding_action",
+                    "subject": 4,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      4,
+                      1
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "b3a6e979ff457535cdaaf09383523b4b8750b7a7368446b3e964d6e1f0c1ab42"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 8
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 3,
+                    "operation": "supersede_hypothesis",
+                    "start": 0,
+                    "end": 8
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "state_change",
+                    "start": 9,
+                    "end": 10
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "focus",
+                    "start": 10,
+                    "end": 11
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 2,
+                    "operation": "draw",
+                    "start": 12,
+                    "end": 12
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 4,
+                    "operation": "focus",
+                    "start": 12,
+                    "end": 13
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 3,
+                    "operation": "draw",
+                    "start": 13,
+                    "end": 14
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 4,
+                    "operation": "focus",
+                    "start": 14,
+                    "end": 16
+                  }
+                ],
+                "hash": "de155ad149d0333c6a559f31186bf801001ecc3ee5a4f3b27ad6c40ed8a28e21"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  1,
+                  0,
+                  1,
+                  1,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "focusCell": 25,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "participant",
+                    "cell": 24
+                  },
+                  {
+                    "order": 1,
+                    "role": "focus",
+                    "cell": 25
+                  },
+                  {
+                    "order": 2,
+                    "role": "participant",
+                    "cell": 27
+                  },
+                  {
+                    "order": 3,
+                    "role": "participant",
+                    "cell": 28
+                  },
+                  {
+                    "order": 4,
+                    "role": "participant",
+                    "cell": 29
+                  }
+                ],
+                "hash": "d670daae14fb126ec0c62793665acb1ba77a3eb6158f2941133c1c3515f03265"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "b3a6e979ff457535cdaaf09383523b4b8750b7a7368446b3e964d6e1f0c1ab42",
+              "motion": "de155ad149d0333c6a559f31186bf801001ecc3ee5a4f3b27ad6c40ed8a28e21",
+              "occupancy": "d670daae14fb126ec0c62793665acb1ba77a3eb6158f2941133c1c3515f03265",
+              "exact": "8de5d34696b1a0bcc9c1ff52092b22be89dedc5184e3b6fe6658a88e3ac36e86",
+              "near": "389d44603b9b73f222a17a4d28fbcb6520b2eaab17c7c892e2b393ec0a508697"
+            }
+          },
+          {
+            "storyId": "baychimo",
+            "programIndex": 2,
+            "sceneIndex": 2,
+            "sceneId": "visual_scene_02",
+            "programHash": "8ed9a0e3b6e1499c4f8fc8c9d3168e0acde5c7aa3d3933c7f64be1bd2f083347",
+            "sourceSemanticEventGraphHash": "0f999495fc4ebd07f652b9ed5af7e49976cfe23e7819a12c1a02968bf8ee3bef",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "steamship",
+                    "visualSubjectKind": "vessel"
+                  },
+                  {
+                    "kind": "moving_ice_environment",
+                    "visualSubjectKind": "environment"
+                  },
+                  {
+                    "kind": "archival_record",
+                    "visualSubjectKind": "record"
+                  }
+                ],
+                "focusEntity": 0,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "drifted_with",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 0,
+                    "predicate": "latest_record_dates_to_1969",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  },
+                  {
+                    "from": 2,
+                    "to": 0,
+                    "predicate": "occurred_decades_after_ship_was_abandoned",
+                    "polarity": "affirmed",
+                    "certainty": "verified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "state_transition",
+                    "predicate": "had_no_crew_aboard",
+                    "semanticOperation": "reveal_empty_crew_state",
+                    "subject": 0,
+                    "objects": [],
+                    "focus": [
+                      0
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "coupled_motion",
+                    "predicate": "drifted_with",
+                    "semanticOperation": "move_ship_with_pack_ice",
+                    "subject": 0,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      0,
+                      1
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "archival_evidence",
+                    "predicate": "latest_record_dates_to_1969",
+                    "semanticOperation": "stamp_latest_archive_record",
+                    "subject": 2,
+                    "objects": [
+                      0
+                    ],
+                    "focus": [
+                      2,
+                      0
+                    ],
+                    "certainty": "verified"
+                  },
+                  {
+                    "eventKind": "temporal_relation",
+                    "predicate": "occurred_decades_after_ship_was_abandoned",
+                    "semanticOperation": "span_abandonment_to_latest_record",
+                    "subject": 2,
+                    "objects": [
+                      0
+                    ],
+                    "focus": [
+                      0,
+                      2
+                    ],
+                    "certainty": "verified"
+                  }
+                ],
+                "hash": "10ead56a27b7c8faa1fdafb346923a14bd76151e2ed169ae840b98b94b35f8c3"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "entity",
+                    "target": 0,
+                    "operation": "empty_occupancy",
+                    "start": 0,
+                    "end": 1
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 0,
+                    "operation": "co_move",
+                    "start": 1,
+                    "end": 5
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 1,
+                    "operation": "co_move",
+                    "start": 1,
+                    "end": 5
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 1,
+                    "operation": "draw",
+                    "start": 6,
+                    "end": 12
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 2,
+                    "operation": "mark_last_known",
+                    "start": 6,
+                    "end": 12
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 2,
+                    "operation": "draw",
+                    "start": 13,
+                    "end": 16
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 0,
+                    "operation": "mark_last_known",
+                    "start": 13,
+                    "end": 16
+                  }
+                ],
+                "hash": "4d8f6edf5abf48de352e1ee9e0605d643884f0a06b1c5cfddf4677ef9cae204b"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "focusCell": 27,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "focus",
+                    "cell": 27
+                  },
+                  {
+                    "order": 1,
+                    "role": "participant",
+                    "cell": 9
+                  },
+                  {
+                    "order": 2,
+                    "role": "participant",
+                    "cell": 39
+                  }
+                ],
+                "hash": "d504466a37fcca95d3861293a7afc2031140e89b38bc99a81c6c9eab94b1a3f5"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "10ead56a27b7c8faa1fdafb346923a14bd76151e2ed169ae840b98b94b35f8c3",
+              "motion": "4d8f6edf5abf48de352e1ee9e0605d643884f0a06b1c5cfddf4677ef9cae204b",
+              "occupancy": "d504466a37fcca95d3861293a7afc2031140e89b38bc99a81c6c9eab94b1a3f5",
+              "exact": "b23b00c2383f5d8355d71fba3750da7d0f8b5f3088d701ca64e62e40251843d4",
+              "near": "85d57a470baaa72ac1fb44ae9038e366d2dce6362532f093d6a2c2a5b449341d"
+            }
+          },
+          {
+            "storyId": "baychimo",
+            "programIndex": 2,
+            "sceneIndex": 3,
+            "sceneId": "visual_scene_03",
+            "programHash": "8ed9a0e3b6e1499c4f8fc8c9d3168e0acde5c7aa3d3933c7f64be1bd2f083347",
+            "sourceSemanticEventGraphHash": "0f999495fc4ebd07f652b9ed5af7e49976cfe23e7819a12c1a02968bf8ee3bef",
+            "descriptors": {
+              "semanticGraph": {
+                "entities": [
+                  {
+                    "kind": "archival_record",
+                    "visualSubjectKind": "record"
+                  },
+                  {
+                    "kind": "steamship",
+                    "visualSubjectKind": "vessel"
+                  },
+                  {
+                    "kind": "moving_ice_environment",
+                    "visualSubjectKind": "environment"
+                  },
+                  {
+                    "kind": "rejected_interpretation",
+                    "visualSubjectKind": "hypothesis"
+                  },
+                  {
+                    "kind": "unknown_outcome",
+                    "visualSubjectKind": "unknown_region"
+                  }
+                ],
+                "focusEntity": 1,
+                "relations": [
+                  {
+                    "from": 0,
+                    "to": 1,
+                    "predicate": "documents_extraordinary_drift",
+                    "polarity": "affirmed",
+                    "certainty": "qualified"
+                  },
+                  {
+                    "from": 0,
+                    "to": 2,
+                    "predicate": "documents_extraordinary_drift",
+                    "polarity": "affirmed",
+                    "certainty": "qualified"
+                  },
+                  {
+                    "from": 1,
+                    "to": 3,
+                    "predicate": "was_a_supernatural_ghost_ship",
+                    "polarity": "negated",
+                    "certainty": "qualified"
+                  },
+                  {
+                    "from": 4,
+                    "to": 1,
+                    "predicate": "remains_unknown",
+                    "polarity": "affirmed",
+                    "certainty": "qualified"
+                  }
+                ],
+                "events": [
+                  {
+                    "eventKind": "bounded_interpretation",
+                    "predicate": "documents_extraordinary_drift",
+                    "semanticOperation": "bound_documented_drift_evidence",
+                    "subject": 0,
+                    "objects": [
+                      1,
+                      2
+                    ],
+                    "focus": [
+                      0,
+                      1,
+                      2
+                    ],
+                    "certainty": "qualified"
+                  },
+                  {
+                    "eventKind": "rejected_interpretation",
+                    "predicate": "was_a_supernatural_ghost_ship",
+                    "semanticOperation": "reject_supernatural_interpretation",
+                    "subject": 1,
+                    "objects": [
+                      3
+                    ],
+                    "focus": [
+                      1,
+                      3
+                    ],
+                    "certainty": "qualified"
+                  },
+                  {
+                    "eventKind": "epistemic_state",
+                    "predicate": "remains_unknown",
+                    "semanticOperation": "fade_beyond_last_documented_record",
+                    "subject": 4,
+                    "objects": [
+                      1
+                    ],
+                    "focus": [
+                      0,
+                      4
+                    ],
+                    "certainty": "qualified"
+                  }
+                ],
+                "hash": "d7b32debe4dec5ca9396ded02430556498b7a2da6429276d4647afc012a6f1c3"
+              },
+              "motion": {
+                "buckets": 16,
+                "tracks": [
+                  {
+                    "targetKind": "relation",
+                    "target": 0,
+                    "operation": "draw",
+                    "start": 0,
+                    "end": 2
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 1,
+                    "operation": "draw",
+                    "start": 2,
+                    "end": 4
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 0,
+                    "operation": "focus",
+                    "start": 4,
+                    "end": 5
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 2,
+                    "operation": "draw",
+                    "start": 6,
+                    "end": 9
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 3,
+                    "operation": "reject_hypothesis",
+                    "start": 6,
+                    "end": 9
+                  },
+                  {
+                    "targetKind": "relation",
+                    "target": 3,
+                    "operation": "draw",
+                    "start": 10,
+                    "end": 14
+                  },
+                  {
+                    "targetKind": "entity",
+                    "target": 4,
+                    "operation": "unresolved_boundary",
+                    "start": 10,
+                    "end": 14
+                  }
+                ],
+                "hash": "fc97fd1cd030e99f8bf8d8bf6e84dbb9af76f228ed359ae4fb3e3b95b8e9043f"
+              },
+              "occupancy": {
+                "columns": 6,
+                "rows": 8,
+                "cells": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  1,
+                  1,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "focusCell": 9,
+                "nodes": [
+                  {
+                    "order": 0,
+                    "role": "participant",
+                    "cell": 30
+                  },
+                  {
+                    "order": 1,
+                    "role": "focus",
+                    "cell": 9
+                  },
+                  {
+                    "order": 2,
+                    "role": "participant",
+                    "cell": 32
+                  },
+                  {
+                    "order": 3,
+                    "role": "participant",
+                    "cell": 33
+                  },
+                  {
+                    "order": 4,
+                    "role": "participant",
+                    "cell": 35
+                  }
+                ],
+                "hash": "17eccc02d98cc3a0428909f4232c884ef75287032e7539c748aaed8f9670cc18"
+              }
+            },
+            "hashes": {
+              "semanticGraph": "d7b32debe4dec5ca9396ded02430556498b7a2da6429276d4647afc012a6f1c3",
+              "motion": "fc97fd1cd030e99f8bf8d8bf6e84dbb9af76f228ed359ae4fb3e3b95b8e9043f",
+              "occupancy": "17eccc02d98cc3a0428909f4232c884ef75287032e7539c748aaed8f9670cc18",
+              "exact": "a374e3042b67b67f5ec109dff8e464380eecf5379e6fb569c26252fce388aea1",
+              "near": "4222f05e40721a78ec24a51382b2db770a514ac4bfc56293fcf370fa4875fb09"
+            }
+          }
+        ]
+      }
+    ],
+    "withinStory": {
+      "comparisonCount": 7,
+      "matches": []
+    },
+    "crossStory": {
+      "comparisonCount": 33,
+      "matches": []
+    },
+    "violations": [],
+    "warnings": [],
+    "summary": {
+      "acceptedProgramCount": 3,
+      "sceneCount": 10,
+      "violationCount": 0,
+      "warningCount": 0,
+      "repetitionCount": 0
+    },
+    "reportHash": "fc15aa02358286a325fc1817ae8c4cc13b5a1968477b368866b2e7813b3fd2d4"
+  },
+  "passed": true
+}

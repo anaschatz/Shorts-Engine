@@ -1,0 +1,1989 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism_explainer_calibration_sampled_frames_v1",
+  "storyId": "gps",
+  "compositionHash": "6fccbf46eca263d688993608d6053ea97efc0c276a13e33c43548928391ef380",
+  "storySpecHash": "6734bce33a887aab6bd30981c9967f687ce5772c1c597a9af0039893991b1a63",
+  "pixelHashProfile": "rgb24_most_significant_bit_v1",
+  "sampleFrames": [
+    0,
+    4,
+    8,
+    80,
+    81,
+    85,
+    89,
+    128,
+    171,
+    172,
+    176,
+    180,
+    255,
+    256,
+    257,
+    327,
+    328,
+    333,
+    338,
+    385,
+    412,
+    413,
+    417,
+    421,
+    505,
+    506,
+    513,
+    570,
+    571,
+    635,
+    636,
+    640,
+    641,
+    644,
+    723,
+    724,
+    770,
+    794,
+    795,
+    799,
+    803,
+    898
+  ],
+  "rendererHashes": {
+    "0": "dd689ef0c7e3e4a433fd8753e4bbacbfd806a70668380356ebce8002aa289dd9",
+    "4": "8136c176c14f6716874e1155a19e97659d7504d33db435584ed2d41df8ae681f",
+    "8": "b0d0660959599cc5e0007f869b5ed45a4e97f62137b6bb578a79b0dfc8434045",
+    "80": "dd689ef0c7e3e4a433fd8753e4bbacbfd806a70668380356ebce8002aa289dd9",
+    "81": "dd689ef0c7e3e4a433fd8753e4bbacbfd806a70668380356ebce8002aa289dd9",
+    "85": "91f7a1d7fae029415ccad06b4dd7b87cd7275d561ef1c3e82b2ef197f8c27091",
+    "89": "531cdf61f3b6b1732c62807c2269b11e8e7b587a03357ac9fe6713b556941cc3",
+    "128": "531cdf61f3b6b1732c62807c2269b11e8e7b587a03357ac9fe6713b556941cc3",
+    "171": "42168c6f12fa0faa4e12a7954b89f45b5597065b851911c54370d4eb16f345c6",
+    "172": "42168c6f12fa0faa4e12a7954b89f45b5597065b851911c54370d4eb16f345c6",
+    "176": "503b23f8e16c1ffd5eb3be831dc29ae2d60b56c4ee7da5a403518cbe9b516d3b",
+    "180": "7a859807f8836bca13bbfc81f5792c8286dac7e94609474e0b277710b82d7d06",
+    "255": "1e3b2fc823ed8a50cf4f3cdca7762ec7d53b94d12b6db85a7007817708c1ea85",
+    "256": "1e3b2fc823ed8a50cf4f3cdca7762ec7d53b94d12b6db85a7007817708c1ea85",
+    "257": "17b245a8dde6b62851444ddd20d39c9ecc1a3dc8ac450d73c93b4d910337818b",
+    "327": "fc1565090be15812e0c4a73eb0f3dbea4df7ff77d424e6e4424872fe13375695",
+    "328": "fc1565090be15812e0c4a73eb0f3dbea4df7ff77d424e6e4424872fe13375695",
+    "333": "279c8f8e5dae4b2dbd2e820e556cb2c828848467c29f59e6d3dc83e10c9cf4cf",
+    "338": "4952088d964e34f6e5e05dfb857aaff5e074721d2686a3c098e9cb53665a490d",
+    "385": "4952088d964e34f6e5e05dfb857aaff5e074721d2686a3c098e9cb53665a490d",
+    "412": "7ab1235dbda288af2202e46e0861656c7fe38688bc9fa643606eb033066c3787",
+    "413": "7ab1235dbda288af2202e46e0861656c7fe38688bc9fa643606eb033066c3787",
+    "417": "9e3172739ec9c152779ce9211c19ce74e7eac959ec270131fcf247497d65dceb",
+    "421": "e7d80e89faf4303bd4656029f3a9b4e1071ca03a6d8eeef094cbbead64782bb9",
+    "505": "612ad74dde882e41cd8256b45c9480fea3fae21128096663cac518c6f71ca6d6",
+    "506": "612ad74dde882e41cd8256b45c9480fea3fae21128096663cac518c6f71ca6d6",
+    "513": "879a698ee0bef91ef0abe3c340e908f51470ddb9d5c359fb839303243a508cb7",
+    "570": "ac6a328b66705f057d75f8b36d061298c4be500f5282f96c5c6ff642265dff54",
+    "571": "ac6a328b66705f057d75f8b36d061298c4be500f5282f96c5c6ff642265dff54",
+    "635": "08b85b9901c797559e5b6946dcfc4c94a2b84dc6a6c0681fa9a62ba0f2030d10",
+    "636": "08b85b9901c797559e5b6946dcfc4c94a2b84dc6a6c0681fa9a62ba0f2030d10",
+    "640": "c8d9e41bde46a73c1618010e56af80f5f5becb10d723f62ef3ae786bc49f6ce1",
+    "641": "b42aea531cd50da12f86c2debc9fd89b3c8f873596221323c02e5b92faf6cd1c",
+    "644": "3c004f9cf3b8da07b00dce4e746699763213c08115c4e83aac6133feaea0edce",
+    "723": "bced626ab1fab4a69033bedd660e330725d7fb50d62565a9a4511d22e1214422",
+    "724": "bced626ab1fab4a69033bedd660e330725d7fb50d62565a9a4511d22e1214422",
+    "770": "ba8b3d769b6fc2d8a78f2b7cf7c61dc55a62560f1daaa5d1c7a7aad765b1e164",
+    "794": "8d49aec0adaed4e91c42a57f984067a54b341d2c6d2aa4b4cb8bf6ff4f8b54dd",
+    "795": "8d49aec0adaed4e91c42a57f984067a54b341d2c6d2aa4b4cb8bf6ff4f8b54dd",
+    "799": "21a6a8f5d9011535d3e59c673daa7af299ed668558e03f227bfb6adff4ce9fff",
+    "803": "b5cdd3e44663c83080679133a0263d62eaa2c99c234145dee82c25207a7832c9",
+    "898": "dc41de137c1cf60c93881f7cc9f31d96cd53ffbd54350fde70f32c8206d12823"
+  },
+  "runtimeStates": {
+    "0": {
+      "frame": 0,
+      "state": {
+        "frame": 0,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "gps_week_not_date",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "4": {
+      "frame": 4,
+      "state": {
+        "frame": 4,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "gps_week_not_date",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "8": {
+      "frame": 8,
+      "state": {
+        "frame": 8,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "gps_week_not_date",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "80": {
+      "frame": 80,
+      "state": {
+        "frame": 80,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "gps_week_not_date",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "81": {
+      "frame": 81,
+      "state": {
+        "frame": 81,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "gps_ten_bits",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "85": {
+      "frame": 85,
+      "state": {
+        "frame": 85,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "gps_ten_bits",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "89": {
+      "frame": 89,
+      "state": {
+        "frame": 89,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "gps_ten_bits",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "128": {
+      "frame": 128,
+      "state": {
+        "frame": 128,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "gps_ten_bits",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "171": {
+      "frame": 171,
+      "state": {
+        "frame": 171,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "gps_ten_bits",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "172": {
+      "frame": 172,
+      "state": {
+        "frame": 172,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "gps_value_range",
+        "action": "update",
+        "triggerFrame": 172,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0838",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "176": {
+      "frame": 176,
+      "state": {
+        "frame": 176,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "gps_value_range",
+        "action": "update",
+        "triggerFrame": 172,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "1023",
+          "fromOpacity": 0,
+          "toOpacity": 0.25,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 0.25
+      }
+    },
+    "180": {
+      "frame": 180,
+      "state": {
+        "frame": 180,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "gps_value_range",
+        "action": "update",
+        "triggerFrame": 172,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "1023",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "255": {
+      "frame": 255,
+      "state": {
+        "frame": 255,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "gps_value_range",
+        "action": "update",
+        "triggerFrame": 172,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "1023",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "256": {
+      "frame": 256,
+      "state": {
+        "frame": 256,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 3,
+        "phraseId": "gps_at_limit",
+        "action": "hold",
+        "triggerFrame": 256,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "1023",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "257": {
+      "frame": 257,
+      "state": {
+        "frame": 257,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 3,
+        "phraseId": "gps_at_limit",
+        "action": "hold",
+        "triggerFrame": 256,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "1023",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.074074,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "327": {
+      "frame": 327,
+      "state": {
+        "frame": 327,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 3,
+        "phraseId": "gps_at_limit",
+        "action": "hold",
+        "triggerFrame": 256,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "1023",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "328": {
+      "frame": 328,
+      "state": {
+        "frame": 328,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 4,
+        "phraseId": "gps_rollover",
+        "action": "rollover",
+        "triggerFrame": 328,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "1023",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "333": {
+      "frame": 333,
+      "state": {
+        "frame": 333,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 4,
+        "phraseId": "gps_rollover",
+        "action": "rollover",
+        "triggerFrame": 328,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 0.5,
+          "toOpacity": 0.5,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.925926,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "338": {
+      "frame": 338,
+      "state": {
+        "frame": 338,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 4,
+        "phraseId": "gps_rollover",
+        "action": "rollover",
+        "triggerFrame": 328,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "385": {
+      "frame": 385,
+      "state": {
+        "frame": 385,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 4,
+        "phraseId": "gps_rollover",
+        "action": "rollover",
+        "triggerFrame": 328,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "412": {
+      "frame": 412,
+      "state": {
+        "frame": 412,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 4,
+        "phraseId": "gps_rollover",
+        "action": "rollover",
+        "triggerFrame": 328,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "413": {
+      "frame": 413,
+      "state": {
+        "frame": 413,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 5,
+        "phraseId": "gps_old_cycle",
+        "action": "update",
+        "triggerFrame": 413,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "417": {
+      "frame": 417,
+      "state": {
+        "frame": 417,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 5,
+        "phraseId": "gps_old_cycle",
+        "action": "update",
+        "triggerFrame": 413,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "421": {
+      "frame": 421,
+      "state": {
+        "frame": 421,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 5,
+        "phraseId": "gps_old_cycle",
+        "action": "update",
+        "triggerFrame": 413,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "505": {
+      "frame": 505,
+      "state": {
+        "frame": 505,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 5,
+        "phraseId": "gps_old_cycle",
+        "action": "update",
+        "triggerFrame": 413,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "506": {
+      "frame": 506,
+      "state": {
+        "frame": 506,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 6,
+        "phraseId": "gps_date_backward",
+        "action": "hold",
+        "triggerFrame": 506,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "513": {
+      "frame": 513,
+      "state": {
+        "frame": 513,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 6,
+        "phraseId": "gps_date_backward",
+        "action": "hold",
+        "triggerFrame": 506,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "570": {
+      "frame": 570,
+      "state": {
+        "frame": 570,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 6,
+        "phraseId": "gps_date_backward",
+        "action": "hold",
+        "triggerFrame": 506,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "571": {
+      "frame": 571,
+      "state": {
+        "frame": 571,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 7,
+        "phraseId": "gps_time_continues",
+        "action": "hold",
+        "triggerFrame": 571,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "time_continues",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "635": {
+      "frame": 635,
+      "state": {
+        "frame": 635,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 7,
+        "phraseId": "gps_time_continues",
+        "action": "hold",
+        "triggerFrame": 571,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "time_continues",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "636": {
+      "frame": 636,
+      "state": {
+        "frame": 636,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 8,
+        "phraseId": "gps_patch",
+        "action": "resolve",
+        "triggerFrame": 636,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "patch",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "640": {
+      "frame": 640,
+      "state": {
+        "frame": 640,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 8,
+        "phraseId": "gps_patch",
+        "action": "resolve",
+        "triggerFrame": 636,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "patch",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "641": {
+      "frame": 641,
+      "state": {
+        "frame": 641,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 8,
+        "phraseId": "gps_patch",
+        "action": "resolve",
+        "triggerFrame": 636,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0.683594
+        },
+        "helper": {
+          "recipe": "patch",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.925926,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "644": {
+      "frame": 644,
+      "state": {
+        "frame": 644,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 8,
+        "phraseId": "gps_patch",
+        "action": "resolve",
+        "triggerFrame": 636,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "patch",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "723": {
+      "frame": 723,
+      "state": {
+        "frame": 723,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 8,
+        "phraseId": "gps_patch",
+        "action": "resolve",
+        "triggerFrame": 636,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "patch",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "724": {
+      "frame": 724,
+      "state": {
+        "frame": 724,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 9,
+        "phraseId": "gps_correct_date",
+        "action": "hold",
+        "triggerFrame": 724,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "patch",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "770": {
+      "frame": 770,
+      "state": {
+        "frame": 770,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 9,
+        "phraseId": "gps_correct_date",
+        "action": "hold",
+        "triggerFrame": 724,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "patch",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "794": {
+      "frame": 794,
+      "state": {
+        "frame": 794,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 9,
+        "phraseId": "gps_correct_date",
+        "action": "hold",
+        "triggerFrame": 724,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "patch",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "795": {
+      "frame": 795,
+      "state": {
+        "frame": 795,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 10,
+        "phraseId": "gps_payoff",
+        "action": "resolve",
+        "triggerFrame": 795,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "time_continues",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "799": {
+      "frame": 799,
+      "state": {
+        "frame": 799,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 10,
+        "phraseId": "gps_payoff",
+        "action": "resolve",
+        "triggerFrame": 795,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "time_continues",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "803": {
+      "frame": 803,
+      "state": {
+        "frame": 803,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 10,
+        "phraseId": "gps_payoff",
+        "action": "resolve",
+        "triggerFrame": 795,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "time_continues",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "898": {
+      "frame": 898,
+      "state": {
+        "frame": 898,
+        "storyId": "gps_week_counter_mechanism_v1",
+        "phraseIndex": 10,
+        "phraseId": "gps_payoff",
+        "action": "resolve",
+        "triggerFrame": 795,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "0000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "time_continues",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    }
+  },
+  "freshContextRandomAccessVerification": true
+}

@@ -1,0 +1,568 @@
+{
+  "schemaVersion": 1,
+  "proofProfile": "generalized_visual_composition_v2_video_proof",
+  "storyId": "odometer",
+  "generatedAt": "2026-08-07T22:23:58.375Z",
+  "publishable": false,
+  "humanReviewStatus": "pending",
+  "humanApproved": false,
+  "productionReady": false,
+  "trust": {
+    "mode": "calibration_trusted",
+    "disclosure": "local_llm_generated_nonproduction"
+  },
+  "rights": {
+    "status": "calibration_only_not_commercially_attested",
+    "source": "showcase/assets/mechanism-explainer-odometer-calibration-v1.mp4",
+    "publishApprovalRequired": true
+  },
+  "planner": {
+    "plannerId": "local_llm_visual_program_v2_planner",
+    "mode": "openai_compatible",
+    "providerId": "local_openai_compatible",
+    "modelId": "qwen3:4b-instruct",
+    "promptProfileId": "generalized_visual_program_v2_local_composer_prompt_v1",
+    "plannerConfigurationHash": "14b0f364949f8140c2f0e21403a910f5db088620616469fea6b421ee46fbebff",
+    "providerSelectionHash": "e7ae257d401f63d7a36145e3d9ca435072172a39ca555a735132ef690e18277f",
+    "choiceHash": "b217eb248067c7349bdec3792d70d13a2e41662b6a85397341d107ea7067daae",
+    "promptProjectionHash": "14995c45c3b191b81c917c19d13219eac4c09ee5dc457da82cf992d272cf3957",
+    "attemptCount": 1,
+    "fallbackUsed": false,
+    "failure": null
+  },
+  "semanticSource": {
+    "profile": "operator_calibration_graph_v1",
+    "version": "1.0.0",
+    "sourceProfile": "mechanism_explainer_calibration_v1",
+    "sourceGraphHash": "bc7f784640b6a0fb2e6eab88e3872d910c420a606f8b29958963b8453bc17037",
+    "approvedDraftHash": "e739545bbab1d7d2d6cbcf14910997a79294e658fd6bdc7aea274aeb59dc7912",
+    "timingContextHash": "3ffaf0c85564eccd5f912e5b205502079059a28b3bb2a9c63dfcb76bd543f599",
+    "entityCount": 6,
+    "propositionCount": 8,
+    "sourceGraphAuthoringMode": "operator_calibration_fixture",
+    "v2GraphHandAuthored": true
+  },
+  "bindings": {
+    "proposalHash": "0cbddedda5b6c9086dd89f14dc311769d5988608f31ba39b028982df225fa16b",
+    "semanticEventGraphHash": "bc7f784640b6a0fb2e6eab88e3872d910c420a606f8b29958963b8453bc17037",
+    "timingContextHash": "3ffaf0c85564eccd5f912e5b205502079059a28b3bb2a9c63dfcb76bd543f599",
+    "draftHash": "e739545bbab1d7d2d6cbcf14910997a79294e658fd6bdc7aea274aeb59dc7912",
+    "sourceRevisionHash": "e582553506119b949ca3d0ed9f6923831099a81470522463f2618e0b9fcba553"
+  },
+  "style": {
+    "specId": "educational_line_art_reference_v1",
+    "specVersion": "1.0.0",
+    "contentHash": "fc86508b2b89e8a974caad385684ddb214c52710beaad99ff283f23f7c956601"
+  },
+  "renderer": {
+    "profile": "generalized_visual_composition_renderer_v2",
+    "version": "2.0.0"
+  },
+  "duration": {
+    "fps": 30,
+    "totalFrames": 537
+  },
+  "proposal": {
+    "profile": "generalized_visual_program_proposal_v2",
+    "containsEngineOwnedGeometry": false,
+    "containsVisibleCopy": false,
+    "sceneCount": 3
+  },
+  "fingerprints": {
+    "program": "383ef7722b752eb5b4c42201fbb2c926c234e3057ebbe08e1a8cd17d9886500f",
+    "composition": "dc17afcd2ad11b40db8474ce04fdd704b652e14f7328284f154b9bdc8989e7eb",
+    "scenes": [
+      {
+        "id": "visual_scene_00",
+        "fingerprint": "8a92d283e2e7c44f1865e8a51353866b4b6748b42370f915c30bf2a666332ffa"
+      },
+      {
+        "id": "visual_scene_01",
+        "fingerprint": "b9fbbd6afe41496da4e9a404269d4fd44fdd0ef7f0a9f18c7f5a5d152b4d7c4e"
+      },
+      {
+        "id": "visual_scene_02",
+        "fingerprint": "05b18b5a2211fd3d5579906a92f82c081d9a86647152489433902235c6edd972"
+      }
+    ],
+    "sampledFrames": {
+      "0": "9f995188c562f2ea0a1104b305eacb5a983931cc321fbba235df38d06751bba7",
+      "60": "b5c34ccf3aedea5c086e5100fd34860f58ac3ed9041fe72ff01fa1c1e68a3765",
+      "120": "f97fc67d7090c4764265ac311705bf0e757e9116616637bd64971bf1797f3e16",
+      "180": "64cd25ba5db455282fb4b98e81792ec6cef87e41b2395a591b74c8ee7c7b9ed5",
+      "240": "5b5ee4607ace1ac6a5a56a2cb4fbf79fa408d94a205ceddaea6a7a04cd9fe1fb",
+      "264": "afb4cc874214423fb91b0cb3a28e02eac9d63453ccfa830c150b6b640d12701a",
+      "300": "5ab72b0d0f4235312ec5b6f6dfeb9f9680b1ae55cd8a1034369de35fc0b26b33",
+      "360": "db1834d7fdcc4f2b94038c45b4b17fed7bf3eb9ebd39bb2dd14abd83cb61e23a",
+      "420": "bfc9cccfc6fe4810b74c24dba62ad38a1979c4529d9659b9846f2e0a645e2b6b",
+      "423": "efedd531adcec1307896ca3821be98b4864e34871a6a1552e198fde892169576",
+      "480": "48d5753424e4c6f2a07e760d6eb544b49b0d74724d40c4f13ad95d5e13194528",
+      "529": "1d240dd9984070e860c7962d25e8f7dc24199bf854c2643260c9d064216f2164",
+      "536": "1d240dd9984070e860c7962d25e8f7dc24199bf854c2643260c9d064216f2164"
+    }
+  },
+  "semanticTrace": [
+    {
+      "sceneId": "visual_scene_00",
+      "entityIds": [
+        "odometer_vehicle",
+        "odometer_wheel_bank",
+        "odometer_before_carry",
+        "odometer_after_carry",
+        "odometer_maximum"
+      ],
+      "predicates": [
+        "contains_six_wheels",
+        "carries_to_next_wheel",
+        "sets_all_wheels_to_nine",
+        "carries_through_all_wheels"
+      ],
+      "operations": [
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "propagate_carry:entity",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "propagate_carry:entity"
+      ]
+    },
+    {
+      "sceneId": "visual_scene_01",
+      "entityIds": [
+        "odometer_wheel_bank",
+        "odometer_zero",
+        "odometer_vehicle"
+      ],
+      "predicates": [
+        "rolls_over_to",
+        "displayed_by_wheel_bank"
+      ],
+      "operations": [
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity",
+        "state_change:entity",
+        "focus:entity"
+      ]
+    },
+    {
+      "sceneId": "visual_scene_02",
+      "entityIds": [
+        "odometer_wheel_bank",
+        "odometer_vehicle"
+      ],
+      "predicates": [
+        "finite_display_resets_not_vehicle"
+      ],
+      "operations": [
+        "draw:relation",
+        "focus:entity"
+      ]
+    }
+  ],
+  "qualityReports": {
+    "semanticTrace": {
+      "schemaVersion": 1,
+      "profile": "visual_program_v2_semantic_trace_report_v1",
+      "planHash": "383ef7722b752eb5b4c42201fbb2c926c234e3057ebbe08e1a8cd17d9886500f",
+      "passed": true,
+      "scenes": [
+        {
+          "sceneId": "visual_scene_00",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 264,
+            "endFrame": 272
+          },
+          "events": [
+            {
+              "eventId": "event_0_00",
+              "propositionId": "prop_odometer_wheels",
+              "selectedEntityIds": [
+                "odometer_vehicle",
+                "odometer_wheel_bank"
+              ],
+              "nonTextEntityIds": [
+                "odometer_vehicle",
+                "odometer_wheel_bank"
+              ],
+              "relationIds": [
+                "relation_0_00"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_00",
+                "track_0_01"
+              ],
+              "cue": {
+                "startFrame": 0,
+                "endFrame": 72
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_0_00",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_0_01",
+              "propositionId": "prop_odometer_carry",
+              "selectedEntityIds": [
+                "odometer_before_carry",
+                "odometer_wheel_bank",
+                "odometer_after_carry"
+              ],
+              "nonTextEntityIds": [
+                "odometer_before_carry",
+                "odometer_wheel_bank",
+                "odometer_after_carry"
+              ],
+              "relationIds": [
+                "relation_0_01"
+              ],
+              "stateChangeTrackIds": [
+                "track_0_03"
+              ],
+              "trackIds": [
+                "track_0_02",
+                "track_0_03"
+              ],
+              "cue": {
+                "startFrame": 81,
+                "endFrame": 147
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_0_01",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_0_02",
+              "propositionId": "prop_odometer_maximum",
+              "selectedEntityIds": [
+                "odometer_wheel_bank",
+                "odometer_maximum"
+              ],
+              "nonTextEntityIds": [
+                "odometer_wheel_bank",
+                "odometer_maximum"
+              ],
+              "relationIds": [
+                "relation_0_02"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_04",
+                "track_0_05"
+              ],
+              "cue": {
+                "startFrame": 157,
+                "endFrame": 228
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_0_02",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_0_03",
+              "propositionId": "prop_odometer_full_carry",
+              "selectedEntityIds": [
+                "odometer_maximum",
+                "odometer_wheel_bank"
+              ],
+              "nonTextEntityIds": [
+                "odometer_maximum",
+                "odometer_wheel_bank"
+              ],
+              "relationIds": [
+                "relation_0_03"
+              ],
+              "stateChangeTrackIds": [
+                "track_0_07"
+              ],
+              "trackIds": [
+                "track_0_06",
+                "track_0_07"
+              ],
+              "cue": {
+                "startFrame": 238,
+                "endFrame": 272
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_0_03",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            }
+          ],
+          "violations": []
+        },
+        {
+          "sceneId": "visual_scene_01",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 423,
+            "endFrame": 431
+          },
+          "events": [
+            {
+              "eventId": "event_1_00",
+              "propositionId": "prop_odometer_rollover",
+              "selectedEntityIds": [
+                "odometer_wheel_bank",
+                "odometer_zero"
+              ],
+              "nonTextEntityIds": [
+                "odometer_wheel_bank",
+                "odometer_zero"
+              ],
+              "relationIds": [
+                "relation_1_00"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_1_00",
+                "track_1_01"
+              ],
+              "cue": {
+                "startFrame": 272,
+                "endFrame": 307
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_1_01",
+              "propositionId": "prop_odometer_zero",
+              "selectedEntityIds": [
+                "odometer_zero",
+                "odometer_wheel_bank"
+              ],
+              "nonTextEntityIds": [
+                "odometer_zero",
+                "odometer_wheel_bank"
+              ],
+              "relationIds": [
+                "relation_1_01"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_1_02",
+                "track_1_03"
+              ],
+              "cue": {
+                "startFrame": 318,
+                "endFrame": 367
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_1_01",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_1_02",
+              "propositionId": "prop_odometer_continues",
+              "selectedEntityIds": [
+                "odometer_vehicle"
+              ],
+              "nonTextEntityIds": [
+                "odometer_vehicle"
+              ],
+              "relationIds": [],
+              "stateChangeTrackIds": [
+                "track_1_04"
+              ],
+              "trackIds": [
+                "track_1_04",
+                "track_1_05"
+              ],
+              "cue": {
+                "startFrame": 377,
+                "endFrame": 421
+              },
+              "causalRelations": []
+            }
+          ],
+          "violations": []
+        },
+        {
+          "sceneId": "visual_scene_02",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 529,
+            "endFrame": 537
+          },
+          "events": [
+            {
+              "eventId": "event_2_00",
+              "propositionId": "prop_odometer_payoff",
+              "selectedEntityIds": [
+                "odometer_wheel_bank",
+                "odometer_vehicle"
+              ],
+              "nonTextEntityIds": [
+                "odometer_wheel_bank",
+                "odometer_vehicle"
+              ],
+              "relationIds": [
+                "relation_2_00"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_2_00",
+                "track_2_01"
+              ],
+              "cue": {
+                "startFrame": 431,
+                "endFrame": 492
+              },
+              "causalRelations": []
+            }
+          ],
+          "violations": []
+        }
+      ],
+      "violations": [],
+      "summary": {
+        "sceneCount": 3,
+        "eventCount": 8,
+        "checkedTrackCount": 16,
+        "violationCount": 0
+      },
+      "reportHash": "b1fb4b55a53851b963cdc8e5175f3eeab2983bb122fb8aebcdbc0e7717ee8ddc"
+    },
+    "persistentTitleOcr": [
+      {
+        "frame": 0,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "6122718cdf7dd52460cedc9d61e482d8edd2d5be4b97dc5e883b693c12462a7e"
+      },
+      {
+        "frame": 60,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "b5d5ca470f7d694d85de9afe15d26358ab7fda51ce1207ad77f034c22d482437"
+      },
+      {
+        "frame": 120,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "6427fceffb2f731c5a630f5b627e96213e8784db31707497d14f08cfd92669dd"
+      },
+      {
+        "frame": 180,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "b5d5ca470f7d694d85de9afe15d26358ab7fda51ce1207ad77f034c22d482437"
+      },
+      {
+        "frame": 240,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "7ff2c2e865958cb7c6413eb1deeabf4320ac097b1bdf2fff66196eb8b7e0b00a"
+      },
+      {
+        "frame": 264,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "51d768097734a4faeec0c85952a60ff08119c93cc00f9d24f275769b5db45cdc"
+      },
+      {
+        "frame": 300,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "90a410cdc891dbb8b759fc5c656c247c137cedeeee9c132894ac3c35af89f4d6"
+      },
+      {
+        "frame": 360,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "a741e18700ba41e969556b3520f6d428e6e93930926195ede816e71ee655f615"
+      },
+      {
+        "frame": 420,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "a61df5483853cfc23340084c06a245e9f8980dd26852732e123453f4176a7ed0"
+      },
+      {
+        "frame": 423,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "a741e18700ba41e969556b3520f6d428e6e93930926195ede816e71ee655f615"
+      },
+      {
+        "frame": 480,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "a741e18700ba41e969556b3520f6d428e6e93930926195ede816e71ee655f615"
+      },
+      {
+        "frame": 529,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "7054b7190174dde6605646a7cec0abc51d4d3884407ba5b5e881ebce3c07cf77"
+      },
+      {
+        "frame": 536,
+        "detected": "WHY AN ODOMETER RETURNS TO ZERO",
+        "passed": true,
+        "cropSha256": "7054b7190174dde6605646a7cec0abc51d4d3884407ba5b5e881ebce3c07cf77"
+      }
+    ]
+  },
+  "media": {
+    "width": 1080,
+    "height": 1920,
+    "frameRate": "30/1",
+    "frameCount": 537,
+    "videoCodec": "h264",
+    "pixelFormat": "yuv420p",
+    "audioCodec": "aac",
+    "audioSampleRate": 48000,
+    "audioChannels": 1,
+    "durationSeconds": 17.9,
+    "sha256": "c27a2f0f9189fe2b31a621e2cf64a7c39f511d1c280496eb40aec41e5176bf90",
+    "bytes": 1171249
+  },
+  "sources": {
+    "sourceVideoHash": "25422c82386e86388066d7c767b8b4f54de4cc5ed45a15d42293bab4def7bfc4",
+    "sourceAssHash": "3686139e67db07c790741717697cc740ea9d7129b4da1daee501aed94c860438",
+    "sourceVttHash": "a417d8638a488437641691eefd5f16d425e87c923361fec29c5c422cc4b3d2a2"
+  },
+  "contactFrames": [
+    0,
+    77,
+    153,
+    230,
+    306,
+    383,
+    459,
+    536
+  ],
+  "gates": {
+    "technical": "passed",
+    "deterministicPlan": "passed",
+    "noRemoteAssets": "passed",
+    "persistentTitleOcr": "passed",
+    "semanticComposition": "passed",
+    "humanPerceptual": "pending"
+  }
+}

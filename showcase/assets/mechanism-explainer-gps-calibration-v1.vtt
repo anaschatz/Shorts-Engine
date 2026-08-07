@@ -1,0 +1,44 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:02.433
+GPS does not send a
+full calendar date.
+
+00:00:02.700 --> 00:00:05.433
+Older signals stored that
+week number in ten bits.
+
+00:00:05.733 --> 00:00:08.233
+The range ends at 1,023.
+
+00:00:08.533 --> 00:00:10.633
+At the limit, there
+is no new number left.
+
+00:00:10.933 --> 00:00:13.400
+Zero is sent again when
+the next week begins.
+
+00:00:13.767 --> 00:00:16.567
+Old software read zero
+as the previous cycle.
+
+00:00:16.867 --> 00:00:18.733
+Their displayed date
+jumped backward.
+
+00:00:19.033 --> 00:00:20.867
+Real time kept
+moving forward.
+
+00:00:21.200 --> 00:00:23.767
+An update selected
+the correct GPS cycle.
+
+00:00:24.133 --> 00:00:26.200
+Now the receiver shows
+the correct date.
+
+00:00:26.500 --> 00:00:28.467
+The number repeated.
+Time did not.

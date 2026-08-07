@@ -1,0 +1,867 @@
+{
+  "schemaVersion": 1,
+  "proofProfile": "generalized_visual_composition_v2_video_proof",
+  "storyId": "baychimo",
+  "generatedAt": "2026-08-07T22:25:09.696Z",
+  "publishable": false,
+  "humanReviewStatus": "pending",
+  "humanApproved": false,
+  "productionReady": false,
+  "trust": {
+    "mode": "calibration_trusted",
+    "disclosure": "local_llm_generated_nonproduction"
+  },
+  "rights": {
+    "status": "internal_rights_confirmed_publish_approval_required",
+    "source": "manual-downloads/dark-curiosity-pilots-a940ca6/baychimo-icebound-drift-final.mp4",
+    "publishApprovalRequired": true
+  },
+  "planner": {
+    "plannerId": "local_llm_visual_program_v2_planner",
+    "mode": "openai_compatible",
+    "providerId": "local_openai_compatible",
+    "modelId": "qwen3:4b-instruct",
+    "promptProfileId": "generalized_visual_program_v2_local_composer_prompt_v1",
+    "plannerConfigurationHash": "14b0f364949f8140c2f0e21403a910f5db088620616469fea6b421ee46fbebff",
+    "providerSelectionHash": "43d6572637b0c1f6e757c9319f2f8b3b3abf74cc0df1c188d25e595ac22e8090",
+    "choiceHash": "f574be3d7995c6ff11b506d872427aadfdd7f959f7ced84b414a3e3b3ce8ec1c",
+    "promptProjectionHash": "c0f8ca827b15fe48612f1365514d5336c39f4885882c5de5423412dc9571f4aa",
+    "attemptCount": 1,
+    "fallbackUsed": false,
+    "failure": null
+  },
+  "semanticSource": {
+    "profile": "semantic_event_graph_v3_to_visual_program_v2",
+    "version": "1.0.0",
+    "sourceProfile": "dark_curiosity_semantic_event_graph_v3",
+    "sourceGraphHash": "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4",
+    "approvedDraftHash": "d056def5df87798ed5c6a912263b923465c13b836ca4d293529f647c9ae1577a",
+    "timingContextHash": "5ef4f3c0ef568f34bc257969fe37f81689e1eb2196fb4f8aa5a901bbea35a626",
+    "entityCount": 13,
+    "propositionCount": 15,
+    "sourceGraphAuthoringMode": "checked_semantic_event_graph_v3",
+    "v2GraphHandAuthored": false
+  },
+  "bindings": {
+    "proposalHash": "60b48e16c91094d1eca97e227df2de1ba410f59436cb1c250c8b9beeb5333dd2",
+    "semanticEventGraphHash": "0f999495fc4ebd07f652b9ed5af7e49976cfe23e7819a12c1a02968bf8ee3bef",
+    "timingContextHash": "5ef4f3c0ef568f34bc257969fe37f81689e1eb2196fb4f8aa5a901bbea35a626",
+    "draftHash": "d056def5df87798ed5c6a912263b923465c13b836ca4d293529f647c9ae1577a",
+    "sourceRevisionHash": "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4"
+  },
+  "style": {
+    "specId": "educational_line_art_reference_v1",
+    "specVersion": "1.0.0",
+    "contentHash": "fc86508b2b89e8a974caad385684ddb214c52710beaad99ff283f23f7c956601"
+  },
+  "renderer": {
+    "profile": "generalized_visual_composition_renderer_v2",
+    "version": "2.0.0"
+  },
+  "duration": {
+    "fps": 30,
+    "totalFrames": 1068
+  },
+  "proposal": {
+    "profile": "generalized_visual_program_proposal_v2",
+    "containsEngineOwnedGeometry": false,
+    "containsVisibleCopy": false,
+    "sceneCount": 4
+  },
+  "fingerprints": {
+    "program": "8ed9a0e3b6e1499c4f8fc8c9d3168e0acde5c7aa3d3933c7f64be1bd2f083347",
+    "composition": "2b2a253aa52067468750a00833039ab8cacd718a661f2374caf2522634dd2272",
+    "scenes": [
+      {
+        "id": "visual_scene_00",
+        "fingerprint": "a0321b1b7d001e1c37abcccdeea1d3d47035ba3b5ff1ff938dac64c209475b7b"
+      },
+      {
+        "id": "visual_scene_01",
+        "fingerprint": "df8b5623be24d77530ff46471b0d9695b420c8b1432b41682e133138439015ec"
+      },
+      {
+        "id": "visual_scene_02",
+        "fingerprint": "c0224f3d5839ea6875fa276d5cb0d29f5ee5d77db6977353d5378e7db7b768f4"
+      },
+      {
+        "id": "visual_scene_03",
+        "fingerprint": "570bd4b8f240b3795fefd68197dae2328ab5b505b0e3abc76f77e09b9c82f240"
+      }
+    ],
+    "sampledFrames": {
+      "0": "a918f64f64cf01b9ff068be852a277d092a87567652d2e212b40c491b55c241d",
+      "60": "358472277d42cf8eb05af22357b93780b1f219a1ed486372d12577a94a84a458",
+      "120": "c101d9d47fd610c101ae701bac48a2102cf9c1a0647bf68e410829423a1adc66",
+      "180": "4f1a36d10d2e5fb23d3639c3a1d8830ad7b8f3bb73a1a31aec96007daccb8791",
+      "238": "70283c9cc80e3588c7e8add8b2e7f38dfc8f95401671cafa1974fdf0fa071452",
+      "240": "70283c9cc80e3588c7e8add8b2e7f38dfc8f95401671cafa1974fdf0fa071452",
+      "300": "6d7abd4b70cbacbd5764c46cf7678a1fc81a8b8e441e3b3f9856ace869566c5a",
+      "360": "ef4826e054710349eebd309504d3a98bd2af15e233775f28b33ee2b20fcb6efc",
+      "420": "14993c004de858062636382b55f0e5c601eff6f5dc20ef6646a542f22a639394",
+      "480": "d7741445fa2a2182eeead07129ad1386cdd66f0761d4768d8e834a6999e46cb3",
+      "501": "762435908dcce025e8047246f81a4101385610ed2f28012c424f3af2fefa679e",
+      "540": "f6226296a8a5fba15137f6f43c9559315a319d36bd8bce8a9af862fcf51a7d44",
+      "600": "fb4312f2c77f278f514349182b98ac39d78acbc45fb2ba2376caaa8d1180f0a6",
+      "660": "344583c5666ea7acf5a6a333be72761cb4413589afa1eedc481de86dc2626d51",
+      "720": "b6fffdcbc24df169e619a2bd6477e7913431cf0f85a4a81bf754d4eb9cabbeda",
+      "780": "ceaa39fc037399aa4519511adfbf60a706fdc9a7053d7b0f8e911e311a618c35",
+      "810": "b0bb988b85709ae04bb9385c1b335a3cc03d4efa9ad368ace9c792f14cf4956c",
+      "840": "ff7b19ce8062eed6d5c1f8c57ebd84ab324b9c942202445a9d8703faf7c9c794",
+      "900": "bf74c4d717c4d686db7536a492fee4b76117fd2f1a0a17e5873fc7f1d13afee3",
+      "960": "262456662559a02b12db3f950fdd8d093b411f331ea5d7aa29c42aba5349b702",
+      "1020": "63ad185336c04bf0d206f239ba43b2a516535258ff84ff9cc37d47929bf8dd80",
+      "1060": "fe0cddb0cf07ce835c6ae6bf75102c34884a348aa18c444ab3187c9b5df04222",
+      "1067": "fe0cddb0cf07ce835c6ae6bf75102c34884a348aa18c444ab3187c9b5df04222"
+    }
+  },
+  "semanticTrace": [
+    {
+      "sceneId": "visual_scene_00",
+      "entityIds": [
+        "baychimo",
+        "year_1931",
+        "baychimo_crew",
+        "blizzard",
+        "arctic_ice",
+        "sinking_assumption"
+      ],
+      "predicates": [
+        "event_occurred_in",
+        "looked_out_after",
+        "found_ship_absent_from_last_seen_ice",
+        "found_ship_absent_from_last_seen_ice",
+        "assumed"
+      ],
+      "operations": [
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "occlude_to_absent:entity",
+        "draw:relation",
+        "focus:entity"
+      ]
+    },
+    {
+      "sceneId": "visual_scene_01",
+      "entityIds": [
+        "local_hunters",
+        "baychimo",
+        "alaskan_coast",
+        "sinking_assumption",
+        "later_observers"
+      ],
+      "predicates": [
+        "spotted_abandoned_ship_near",
+        "spotted_abandoned_ship_near",
+        "saw",
+        "sometimes_boarded"
+      ],
+      "operations": [
+        "draw:relation",
+        "supersede_hypothesis:entity",
+        "state_change:entity",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity"
+      ]
+    },
+    {
+      "sceneId": "visual_scene_02",
+      "entityIds": [
+        "baychimo",
+        "arctic_pack_ice",
+        "company_archive_record"
+      ],
+      "predicates": [
+        "drifted_with",
+        "latest_record_dates_to_1969",
+        "occurred_decades_after_ship_was_abandoned"
+      ],
+      "operations": [
+        "empty_occupancy:entity",
+        "co_move:entity",
+        "co_move:entity",
+        "draw:relation",
+        "mark_last_known:entity",
+        "draw:relation",
+        "mark_last_known:entity"
+      ]
+    },
+    {
+      "sceneId": "visual_scene_03",
+      "entityIds": [
+        "company_archive_record",
+        "baychimo",
+        "arctic_pack_ice",
+        "supernatural_ghost_ship_interpretation",
+        "baychimo_final_fate"
+      ],
+      "predicates": [
+        "documents_extraordinary_drift",
+        "documents_extraordinary_drift",
+        "was_a_supernatural_ghost_ship",
+        "remains_unknown"
+      ],
+      "operations": [
+        "draw:relation",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "reject_hypothesis:entity",
+        "draw:relation",
+        "unresolved_boundary:entity"
+      ]
+    }
+  ],
+  "qualityReports": {
+    "semanticTrace": {
+      "schemaVersion": 1,
+      "profile": "visual_program_v2_semantic_trace_report_v1",
+      "planHash": "8ed9a0e3b6e1499c4f8fc8c9d3168e0acde5c7aa3d3933c7f64be1bd2f083347",
+      "passed": true,
+      "scenes": [
+        {
+          "sceneId": "visual_scene_00",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 238,
+            "endFrame": 246
+          },
+          "events": [
+            {
+              "eventId": "event_0_00",
+              "propositionId": "baychimo_hook_year",
+              "selectedEntityIds": [
+                "baychimo",
+                "year_1931"
+              ],
+              "nonTextEntityIds": [
+                "baychimo",
+                "year_1931"
+              ],
+              "relationIds": [
+                "relation_0_00"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_00",
+                "track_0_01"
+              ],
+              "cue": {
+                "startFrame": 0,
+                "endFrame": 36
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_0_01",
+              "propositionId": "baychimo_hook_crew_observation",
+              "selectedEntityIds": [
+                "baychimo_crew",
+                "blizzard",
+                "arctic_ice"
+              ],
+              "nonTextEntityIds": [
+                "baychimo_crew",
+                "blizzard",
+                "arctic_ice"
+              ],
+              "relationIds": [
+                "relation_0_01"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_02",
+                "track_0_03"
+              ],
+              "cue": {
+                "startFrame": 52,
+                "endFrame": 100
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_0_02",
+              "propositionId": "baychimo_hook_observed_absence",
+              "selectedEntityIds": [
+                "baychimo_crew",
+                "baychimo",
+                "arctic_ice"
+              ],
+              "nonTextEntityIds": [
+                "baychimo_crew",
+                "baychimo",
+                "arctic_ice"
+              ],
+              "relationIds": [
+                "relation_0_02",
+                "relation_0_03"
+              ],
+              "stateChangeTrackIds": [
+                "track_0_05"
+              ],
+              "trackIds": [
+                "track_0_04",
+                "track_0_05"
+              ],
+              "cue": {
+                "startFrame": 100,
+                "endFrame": 180
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_0_03",
+              "propositionId": "baychimo_context_sinking_assumption",
+              "selectedEntityIds": [
+                "baychimo_crew",
+                "sinking_assumption"
+              ],
+              "nonTextEntityIds": [
+                "baychimo_crew",
+                "sinking_assumption"
+              ],
+              "relationIds": [
+                "relation_0_04"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_06",
+                "track_0_07"
+              ],
+              "cue": {
+                "startFrame": 199,
+                "endFrame": 231
+              },
+              "causalRelations": []
+            }
+          ],
+          "violations": []
+        },
+        {
+          "sceneId": "visual_scene_01",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 501,
+            "endFrame": 509
+          },
+          "events": [
+            {
+              "eventId": "event_1_00",
+              "propositionId": "baychimo_context_hunter_sighting",
+              "selectedEntityIds": [
+                "local_hunters",
+                "baychimo",
+                "alaskan_coast",
+                "sinking_assumption"
+              ],
+              "nonTextEntityIds": [
+                "local_hunters",
+                "baychimo",
+                "alaskan_coast",
+                "sinking_assumption"
+              ],
+              "relationIds": [
+                "relation_1_00",
+                "relation_1_01"
+              ],
+              "stateChangeTrackIds": [
+                "track_1_01"
+              ],
+              "trackIds": [
+                "track_1_00",
+                "track_1_01"
+              ],
+              "cue": {
+                "startFrame": 246,
+                "endFrame": 375
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_1_01",
+              "propositionId": "baychimo_evidence_later_years",
+              "selectedEntityIds": [
+                "baychimo"
+              ],
+              "nonTextEntityIds": [
+                "baychimo"
+              ],
+              "relationIds": [],
+              "stateChangeTrackIds": [
+                "track_1_02"
+              ],
+              "trackIds": [
+                "track_1_02",
+                "track_1_03"
+              ],
+              "cue": {
+                "startFrame": 388,
+                "endFrame": 428
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_1_02",
+              "propositionId": "baychimo_evidence_sightings",
+              "selectedEntityIds": [
+                "later_observers",
+                "baychimo"
+              ],
+              "nonTextEntityIds": [
+                "later_observers",
+                "baychimo"
+              ],
+              "relationIds": [
+                "relation_1_02"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_1_04",
+                "track_1_05"
+              ],
+              "cue": {
+                "startFrame": 436,
+                "endFrame": 453
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_1_03",
+              "propositionId": "baychimo_evidence_boardings",
+              "selectedEntityIds": [
+                "later_observers",
+                "baychimo"
+              ],
+              "nonTextEntityIds": [
+                "later_observers",
+                "baychimo"
+              ],
+              "relationIds": [
+                "relation_1_03"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_1_06",
+                "track_1_07"
+              ],
+              "cue": {
+                "startFrame": 453,
+                "endFrame": 509
+              },
+              "causalRelations": []
+            }
+          ],
+          "violations": []
+        },
+        {
+          "sceneId": "visual_scene_02",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 810,
+            "endFrame": 818
+          },
+          "events": [
+            {
+              "eventId": "event_2_00",
+              "propositionId": "baychimo_evidence_without_crew",
+              "selectedEntityIds": [
+                "baychimo"
+              ],
+              "nonTextEntityIds": [
+                "baychimo"
+              ],
+              "relationIds": [],
+              "stateChangeTrackIds": [
+                "track_2_00"
+              ],
+              "trackIds": [
+                "track_2_00"
+              ],
+              "cue": {
+                "startFrame": 509,
+                "endFrame": 529
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_2_01",
+              "propositionId": "baychimo_evidence_pack_ice_drift",
+              "selectedEntityIds": [
+                "baychimo",
+                "arctic_pack_ice"
+              ],
+              "nonTextEntityIds": [
+                "baychimo",
+                "arctic_pack_ice"
+              ],
+              "relationIds": [
+                "relation_2_00"
+              ],
+              "stateChangeTrackIds": [
+                "track_2_01",
+                "track_2_02"
+              ],
+              "trackIds": [
+                "track_2_01",
+                "track_2_02"
+              ],
+              "cue": {
+                "startFrame": 529,
+                "endFrame": 598
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_2_02",
+              "propositionId": "baychimo_turn_latest_record",
+              "selectedEntityIds": [
+                "company_archive_record",
+                "baychimo"
+              ],
+              "nonTextEntityIds": [
+                "company_archive_record",
+                "baychimo"
+              ],
+              "relationIds": [
+                "relation_2_01"
+              ],
+              "stateChangeTrackIds": [
+                "track_2_04"
+              ],
+              "trackIds": [
+                "track_2_03",
+                "track_2_04"
+              ],
+              "cue": {
+                "startFrame": 616,
+                "endFrame": 727
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_2_03",
+              "propositionId": "baychimo_turn_decades_after_abandonment",
+              "selectedEntityIds": [
+                "company_archive_record",
+                "baychimo"
+              ],
+              "nonTextEntityIds": [
+                "company_archive_record",
+                "baychimo"
+              ],
+              "relationIds": [
+                "relation_2_02"
+              ],
+              "stateChangeTrackIds": [
+                "track_2_06"
+              ],
+              "trackIds": [
+                "track_2_05",
+                "track_2_06"
+              ],
+              "cue": {
+                "startFrame": 749,
+                "endFrame": 803
+              },
+              "causalRelations": []
+            }
+          ],
+          "violations": []
+        },
+        {
+          "sceneId": "visual_scene_03",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 1060,
+            "endFrame": 1068
+          },
+          "events": [
+            {
+              "eventId": "event_3_00",
+              "propositionId": "baychimo_payoff_documented_drift",
+              "selectedEntityIds": [
+                "company_archive_record",
+                "baychimo",
+                "arctic_pack_ice"
+              ],
+              "nonTextEntityIds": [
+                "company_archive_record",
+                "baychimo",
+                "arctic_pack_ice"
+              ],
+              "relationIds": [
+                "relation_3_00",
+                "relation_3_01"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_3_00",
+                "track_3_01",
+                "track_3_02"
+              ],
+              "cue": {
+                "startFrame": 818,
+                "endFrame": 899
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_3_01",
+              "propositionId": "baychimo_payoff_not_supernatural",
+              "selectedEntityIds": [
+                "baychimo",
+                "supernatural_ghost_ship_interpretation"
+              ],
+              "nonTextEntityIds": [
+                "baychimo",
+                "supernatural_ghost_ship_interpretation"
+              ],
+              "relationIds": [
+                "relation_3_02"
+              ],
+              "stateChangeTrackIds": [
+                "track_3_04"
+              ],
+              "trackIds": [
+                "track_3_03",
+                "track_3_04"
+              ],
+              "cue": {
+                "startFrame": 910,
+                "endFrame": 959
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_3_02",
+              "propositionId": "baychimo_payoff_unknown_fate",
+              "selectedEntityIds": [
+                "baychimo_final_fate",
+                "baychimo",
+                "company_archive_record"
+              ],
+              "nonTextEntityIds": [
+                "baychimo_final_fate",
+                "baychimo",
+                "company_archive_record"
+              ],
+              "relationIds": [
+                "relation_3_03"
+              ],
+              "stateChangeTrackIds": [
+                "track_3_06"
+              ],
+              "trackIds": [
+                "track_3_05",
+                "track_3_06"
+              ],
+              "cue": {
+                "startFrame": 973,
+                "endFrame": 1031
+              },
+              "causalRelations": []
+            }
+          ],
+          "violations": []
+        }
+      ],
+      "violations": [],
+      "summary": {
+        "sceneCount": 4,
+        "eventCount": 15,
+        "checkedTrackCount": 30,
+        "violationCount": 0
+      },
+      "reportHash": "329ff25756a0dd7b53b16742563e660746535cd8dcd5109c0de103aebab30a85"
+    },
+    "persistentTitleOcr": [
+      {
+        "frame": 0,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "e5ff50e9d6f6c5e5731e14be945327eee85b7081346e48cc686513c442c23996"
+      },
+      {
+        "frame": 60,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "e9e28496e7611b9c59fe2608a29d31f0fd73ea04405e20d06a7c593687a572c8"
+      },
+      {
+        "frame": 120,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "e9e28496e7611b9c59fe2608a29d31f0fd73ea04405e20d06a7c593687a572c8"
+      },
+      {
+        "frame": 180,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "e9e28496e7611b9c59fe2608a29d31f0fd73ea04405e20d06a7c593687a572c8"
+      },
+      {
+        "frame": 238,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "da15307b0c66b978c3e468d75a2b4493b59a93f30fbec131113c776b8b7f5493"
+      },
+      {
+        "frame": 240,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "f269e1f7b6f308c3228d24bf9a69cec3d58a59cf2a10984c68a4ad91ffa58860"
+      },
+      {
+        "frame": 300,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "00e67e1bf0cbceacc3f15a3419bf0986b0dffaece50b23d3470d1b27831c8423"
+      },
+      {
+        "frame": 360,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "adf04529c501ff592d8d7a1f602ff7ea1bb18e9ea0c9c82bd8a2ecc31698226e"
+      },
+      {
+        "frame": 420,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "ed307e7ee3500ddbc6b1a4daa6d92d2c00f9548d237c01becfd7865a7aef2384"
+      },
+      {
+        "frame": 480,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "adf04529c501ff592d8d7a1f602ff7ea1bb18e9ea0c9c82bd8a2ecc31698226e"
+      },
+      {
+        "frame": 501,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "2abc882e809e52d32a0bee499bf3626e4e1ee102e20dcf5b0cf6046f12f5def8"
+      },
+      {
+        "frame": 540,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "3ea27a9b4626befb7bbca60dbe79c6b40d3f1764a455ef20e79954ace59176c3"
+      },
+      {
+        "frame": 600,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "3ea27a9b4626befb7bbca60dbe79c6b40d3f1764a455ef20e79954ace59176c3"
+      },
+      {
+        "frame": 660,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "3ea27a9b4626befb7bbca60dbe79c6b40d3f1764a455ef20e79954ace59176c3"
+      },
+      {
+        "frame": 720,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "3ea27a9b4626befb7bbca60dbe79c6b40d3f1764a455ef20e79954ace59176c3"
+      },
+      {
+        "frame": 780,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "3ea27a9b4626befb7bbca60dbe79c6b40d3f1764a455ef20e79954ace59176c3"
+      },
+      {
+        "frame": 810,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "0f647bdf873400d847c74c891b9980feb7ff6ca25270c2334f79e8a987f3ac63"
+      },
+      {
+        "frame": 840,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "0f647bdf873400d847c74c891b9980feb7ff6ca25270c2334f79e8a987f3ac63"
+      },
+      {
+        "frame": 900,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "3ea27a9b4626befb7bbca60dbe79c6b40d3f1764a455ef20e79954ace59176c3"
+      },
+      {
+        "frame": 960,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "3ea27a9b4626befb7bbca60dbe79c6b40d3f1764a455ef20e79954ace59176c3"
+      },
+      {
+        "frame": 1020,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "a51c1c8b8d0547d6c7b496cc57c6adcb962b78b07319285b4258329f68db1b63"
+      },
+      {
+        "frame": 1060,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "dd0f726566d93f1161e1b738c8d9a6f64549cc7a504691296250f299a7ae6d76"
+      },
+      {
+        "frame": 1067,
+        "detected": "THE SHIP THE ARCTIC WOULD NOT KEEP",
+        "passed": true,
+        "cropSha256": "dd0f726566d93f1161e1b738c8d9a6f64549cc7a504691296250f299a7ae6d76"
+      }
+    ]
+  },
+  "media": {
+    "width": 1080,
+    "height": 1920,
+    "frameRate": "30/1",
+    "frameCount": 1068,
+    "videoCodec": "h264",
+    "pixelFormat": "yuv420p",
+    "audioCodec": "aac",
+    "audioSampleRate": 48000,
+    "audioChannels": 1,
+    "durationSeconds": 35.6,
+    "sha256": "ddd899c7ae9afa81894eb260c5bd4107728ddf6f32065c666a111573e3114582",
+    "bytes": 2647148
+  },
+  "sources": {
+    "sourceVideoHash": "b011445f5b69f9ddd022e1b05adcb02362b9d782c4db9c13d88eccccfe775da5",
+    "sourceReportHash": "f960e54ea8cd00e24a4b1d4c82fd979e789c745d5eda6401f82abecadfa32963",
+    "sourceAssHash": "ffc5dcd29ead470e92ba3e892d9472a423a2440f49f3a11282f1a345341cd140",
+    "sourceVttHash": "2306fd6bf6d538621e8b4e7fc4b0546bfc2bc39dfbaf4c10955eaad4792c89cc",
+    "sourceSemanticGraphHash": "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4",
+    "approvedDraftHash": "d056def5df87798ed5c6a912263b923465c13b836ca4d293529f647c9ae1577a",
+    "alignmentHash": "ff4dd9547d563f396aff90234faaf28eafcf10bb003b7b7a82717b8617d3ccc0",
+    "rightsConfirmed": true,
+    "publishApprovalRequired": true
+  },
+  "contactFrames": [
+    0,
+    152,
+    305,
+    457,
+    610,
+    762,
+    915,
+    1067
+  ],
+  "gates": {
+    "technical": "passed",
+    "deterministicPlan": "passed",
+    "noRemoteAssets": "passed",
+    "persistentTitleOcr": "passed",
+    "semanticComposition": "passed",
+    "humanPerceptual": "pending"
+  }
+}

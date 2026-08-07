@@ -1,0 +1,1458 @@
+{
+  "schemaVersion": 1,
+  "id": "odometer_rollover_mechanism_v1",
+  "profile": "mechanism_explainer_calibration_audio_v1",
+  "durationFrames": 537,
+  "durationSamples": 859200,
+  "durationSeconds": 17.9,
+  "speechEndFrame": 492,
+  "sampleRate": 48000,
+  "channels": 1,
+  "fps": 30,
+  "samplesPerFrame": 1600,
+  "audioSha256": "b4f0fbe94898747a0ba25d939da64a3e14d24f9c5a657e216c5dd19ce6f6196a",
+  "phrases": [
+    {
+      "index": 0,
+      "id": "odometer_six_wheels",
+      "text": "A six-digit odometer has six number wheels.",
+      "visual": {
+        "action": "enter",
+        "displayFrom": "000009",
+        "displayTo": "000009",
+        "helper": {
+          "primary": "6 DIGITS",
+          "recipe": "range",
+          "secondary": "ONE FIXED LIMIT",
+          "title": "DISPLAY SIZE"
+        },
+        "status": "SIX NUMBER WHEELS",
+        "tone": "neutral",
+        "triggerToken": null
+      },
+      "startSample": 0,
+      "startFrame": 0,
+      "endSample": 129600,
+      "endFrame": 81,
+      "triggerFrame": 0,
+      "audio": {
+        "startSample": 0,
+        "endSample": 114786,
+        "sampleCount": 114786,
+        "startFrame": 0,
+        "endFrame": 72,
+        "sha256": "24727ec1cb68c996c239d388ae9f00c735f5d041f12c2d1e2e05138d3a9e5cf7"
+      },
+      "pause": {
+        "requestedMs": 280,
+        "startSample": 114786,
+        "endSample": 128226,
+        "sampleCount": 13440,
+        "startFrame": 72,
+        "endFrame": 81
+      },
+      "alignmentPaddingSamples": 1374,
+      "words": [
+        {
+          "phraseId": "odometer_six_wheels",
+          "localIndex": 0,
+          "globalIndex": 0,
+          "text": "A",
+          "startSample": 0,
+          "endSample": 3280,
+          "startFrame": 0,
+          "endFrame": 2
+        },
+        {
+          "phraseId": "odometer_six_wheels",
+          "localIndex": 1,
+          "globalIndex": 1,
+          "text": "six-digit",
+          "startSample": 3280,
+          "endSample": 29516,
+          "startFrame": 2,
+          "endFrame": 18
+        },
+        {
+          "phraseId": "odometer_six_wheels",
+          "localIndex": 2,
+          "globalIndex": 2,
+          "text": "odometer",
+          "startSample": 29516,
+          "endSample": 55752,
+          "startFrame": 18,
+          "endFrame": 34
+        },
+        {
+          "phraseId": "odometer_six_wheels",
+          "localIndex": 3,
+          "globalIndex": 3,
+          "text": "has",
+          "startSample": 55752,
+          "endSample": 65592,
+          "startFrame": 34,
+          "endFrame": 41
+        },
+        {
+          "phraseId": "odometer_six_wheels",
+          "localIndex": 4,
+          "globalIndex": 4,
+          "text": "six",
+          "startSample": 65592,
+          "endSample": 75431,
+          "startFrame": 41,
+          "endFrame": 47
+        },
+        {
+          "phraseId": "odometer_six_wheels",
+          "localIndex": 5,
+          "globalIndex": 5,
+          "text": "number",
+          "startSample": 75431,
+          "endSample": 95108,
+          "startFrame": 47,
+          "endFrame": 59
+        },
+        {
+          "phraseId": "odometer_six_wheels",
+          "localIndex": 6,
+          "globalIndex": 6,
+          "text": "wheels.",
+          "startSample": 95108,
+          "endSample": 114786,
+          "startFrame": 59,
+          "endFrame": 72
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "id": "odometer_carry",
+      "text": "Each wheel carries into the next after nine.",
+      "visual": {
+        "action": "update",
+        "displayFrom": "000009",
+        "displayTo": "000010",
+        "helper": {
+          "primary": "000009 BECOMES 000010",
+          "recipe": "carry",
+          "secondary": "THE NEXT WHEEL ADVANCES",
+          "title": "AFTER NINE"
+        },
+        "status": "NINE CARRIES LEFT",
+        "tone": "accent",
+        "triggerToken": null
+      },
+      "startSample": 129600,
+      "startFrame": 81,
+      "endSample": 251200,
+      "endFrame": 157,
+      "triggerFrame": 81,
+      "audio": {
+        "startSample": 129600,
+        "endSample": 234480,
+        "sampleCount": 104880,
+        "startFrame": 81,
+        "endFrame": 147,
+        "sha256": "e47448e86e50b0f70ff4248aeb5f02dd7f6eac183b9234ff80c8de9b486a4971"
+      },
+      "pause": {
+        "requestedMs": 340,
+        "startSample": 234480,
+        "endSample": 250800,
+        "sampleCount": 16320,
+        "startFrame": 147,
+        "endFrame": 157
+      },
+      "alignmentPaddingSamples": 400,
+      "words": [
+        {
+          "phraseId": "odometer_carry",
+          "localIndex": 0,
+          "globalIndex": 7,
+          "text": "Each",
+          "startSample": 129600,
+          "endSample": 141253,
+          "startFrame": 81,
+          "endFrame": 88
+        },
+        {
+          "phraseId": "odometer_carry",
+          "localIndex": 1,
+          "globalIndex": 8,
+          "text": "wheel",
+          "startSample": 141253,
+          "endSample": 155820,
+          "startFrame": 88,
+          "endFrame": 97
+        },
+        {
+          "phraseId": "odometer_carry",
+          "localIndex": 2,
+          "globalIndex": 9,
+          "text": "carries",
+          "startSample": 155820,
+          "endSample": 176212,
+          "startFrame": 97,
+          "endFrame": 109
+        },
+        {
+          "phraseId": "odometer_carry",
+          "localIndex": 3,
+          "globalIndex": 10,
+          "text": "into",
+          "startSample": 176212,
+          "endSample": 187866,
+          "startFrame": 109,
+          "endFrame": 117
+        },
+        {
+          "phraseId": "odometer_carry",
+          "localIndex": 4,
+          "globalIndex": 11,
+          "text": "the",
+          "startSample": 187866,
+          "endSample": 196606,
+          "startFrame": 117,
+          "endFrame": 123
+        },
+        {
+          "phraseId": "odometer_carry",
+          "localIndex": 5,
+          "globalIndex": 12,
+          "text": "next",
+          "startSample": 196606,
+          "endSample": 208260,
+          "startFrame": 123,
+          "endFrame": 130
+        },
+        {
+          "phraseId": "odometer_carry",
+          "localIndex": 6,
+          "globalIndex": 13,
+          "text": "after",
+          "startSample": 208260,
+          "endSample": 222826,
+          "startFrame": 130,
+          "endFrame": 139
+        },
+        {
+          "phraseId": "odometer_carry",
+          "localIndex": 7,
+          "globalIndex": 14,
+          "text": "nine.",
+          "startSample": 222826,
+          "endSample": 234480,
+          "startFrame": 139,
+          "endFrame": 147
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "id": "odometer_last_value",
+      "text": "At the maximum, all six wheels show nine.",
+      "visual": {
+        "action": "update",
+        "displayFrom": "000010",
+        "displayTo": "999999",
+        "helper": {
+          "primary": "999,999",
+          "recipe": "range",
+          "secondary": "NO HIGHER DISPLAY",
+          "title": "ALL SIX WHEELS"
+        },
+        "status": "LAST POSSIBLE VALUE",
+        "tone": "warning",
+        "triggerToken": null
+      },
+      "startSample": 251200,
+      "startFrame": 157,
+      "endSample": 380800,
+      "endFrame": 238,
+      "triggerFrame": 157,
+      "audio": {
+        "startSample": 251200,
+        "endSample": 364792,
+        "sampleCount": 113592,
+        "startFrame": 157,
+        "endFrame": 228,
+        "sha256": "abe112611db598d5438817112d5978f36f7b29c699ba087b614b3764b08a284f"
+      },
+      "pause": {
+        "requestedMs": 320,
+        "startSample": 364792,
+        "endSample": 380152,
+        "sampleCount": 15360,
+        "startFrame": 228,
+        "endFrame": 238
+      },
+      "alignmentPaddingSamples": 648,
+      "words": [
+        {
+          "phraseId": "odometer_last_value",
+          "localIndex": 0,
+          "globalIndex": 15,
+          "text": "At",
+          "startSample": 251200,
+          "endSample": 258300,
+          "startFrame": 157,
+          "endFrame": 161
+        },
+        {
+          "phraseId": "odometer_last_value",
+          "localIndex": 1,
+          "globalIndex": 16,
+          "text": "the",
+          "startSample": 258300,
+          "endSample": 268949,
+          "startFrame": 161,
+          "endFrame": 168
+        },
+        {
+          "phraseId": "odometer_last_value",
+          "localIndex": 2,
+          "globalIndex": 17,
+          "text": "maximum,",
+          "startSample": 268949,
+          "endSample": 293797,
+          "startFrame": 168,
+          "endFrame": 183
+        },
+        {
+          "phraseId": "odometer_last_value",
+          "localIndex": 3,
+          "globalIndex": 18,
+          "text": "all",
+          "startSample": 293797,
+          "endSample": 304446,
+          "startFrame": 183,
+          "endFrame": 190
+        },
+        {
+          "phraseId": "odometer_last_value",
+          "localIndex": 4,
+          "globalIndex": 19,
+          "text": "six",
+          "startSample": 304446,
+          "endSample": 315096,
+          "startFrame": 190,
+          "endFrame": 197
+        },
+        {
+          "phraseId": "odometer_last_value",
+          "localIndex": 5,
+          "globalIndex": 20,
+          "text": "wheels",
+          "startSample": 315096,
+          "endSample": 336394,
+          "startFrame": 197,
+          "endFrame": 210
+        },
+        {
+          "phraseId": "odometer_last_value",
+          "localIndex": 6,
+          "globalIndex": 21,
+          "text": "show",
+          "startSample": 336394,
+          "endSample": 350593,
+          "startFrame": 210,
+          "endFrame": 219
+        },
+        {
+          "phraseId": "odometer_last_value",
+          "localIndex": 7,
+          "globalIndex": 22,
+          "text": "nine.",
+          "startSample": 350593,
+          "endSample": 364792,
+          "startFrame": 219,
+          "endFrame": 228
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "id": "odometer_one_more",
+      "text": "One more mile carries through all six wheels.",
+      "visual": {
+        "action": "rollover",
+        "displayFrom": "999999",
+        "displayTo": "000000",
+        "helper": {
+          "primary": "999,999",
+          "recipe": "carry",
+          "secondary": "CARRY THROUGH ALL SIX",
+          "title": "ONE MORE MILE"
+        },
+        "status": "ALL WHEELS ROLL",
+        "tone": "warning",
+        "triggerToken": null
+      },
+      "startSample": 380800,
+      "startFrame": 238,
+      "endSample": 508800,
+      "endFrame": 318,
+      "triggerFrame": 238,
+      "audio": {
+        "startSample": 380800,
+        "endSample": 490976,
+        "sampleCount": 110176,
+        "startFrame": 238,
+        "endFrame": 307,
+        "sha256": "da830fe261bba660a5fc93741530d3510af2efbfc9e71cabe2c02f523c782303"
+      },
+      "pause": {
+        "requestedMs": 360,
+        "startSample": 490976,
+        "endSample": 508256,
+        "sampleCount": 17280,
+        "startFrame": 307,
+        "endFrame": 318
+      },
+      "alignmentPaddingSamples": 544,
+      "words": [
+        {
+          "phraseId": "odometer_one_more",
+          "localIndex": 0,
+          "globalIndex": 23,
+          "text": "One",
+          "startSample": 380800,
+          "endSample": 389733,
+          "startFrame": 238,
+          "endFrame": 243
+        },
+        {
+          "phraseId": "odometer_one_more",
+          "localIndex": 1,
+          "globalIndex": 24,
+          "text": "more",
+          "startSample": 389733,
+          "endSample": 401644,
+          "startFrame": 243,
+          "endFrame": 251
+        },
+        {
+          "phraseId": "odometer_one_more",
+          "localIndex": 2,
+          "globalIndex": 25,
+          "text": "mile",
+          "startSample": 401644,
+          "endSample": 413555,
+          "startFrame": 251,
+          "endFrame": 259
+        },
+        {
+          "phraseId": "odometer_one_more",
+          "localIndex": 3,
+          "globalIndex": 26,
+          "text": "carries",
+          "startSample": 413555,
+          "endSample": 434399,
+          "startFrame": 259,
+          "endFrame": 271
+        },
+        {
+          "phraseId": "odometer_one_more",
+          "localIndex": 4,
+          "globalIndex": 27,
+          "text": "through",
+          "startSample": 434399,
+          "endSample": 455242,
+          "startFrame": 271,
+          "endFrame": 284
+        },
+        {
+          "phraseId": "odometer_one_more",
+          "localIndex": 5,
+          "globalIndex": 28,
+          "text": "all",
+          "startSample": 455242,
+          "endSample": 464176,
+          "startFrame": 284,
+          "endFrame": 290
+        },
+        {
+          "phraseId": "odometer_one_more",
+          "localIndex": 6,
+          "globalIndex": 29,
+          "text": "six",
+          "startSample": 464176,
+          "endSample": 473109,
+          "startFrame": 290,
+          "endFrame": 296
+        },
+        {
+          "phraseId": "odometer_one_more",
+          "localIndex": 7,
+          "globalIndex": 30,
+          "text": "wheels.",
+          "startSample": 473109,
+          "endSample": 490976,
+          "startFrame": 296,
+          "endFrame": 307
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "id": "odometer_zero",
+      "text": "The display returns to zero.",
+      "visual": {
+        "action": "hold",
+        "displayFrom": "000000",
+        "displayTo": "000000",
+        "helper": {
+          "primary": "000,000",
+          "recipe": "range",
+          "secondary": "DISPLAY WRAPS TO ZERO",
+          "title": "SAME SIX DIGITS"
+        },
+        "status": "DISPLAY REPEATS",
+        "tone": "accent",
+        "triggerToken": null
+      },
+      "startSample": 508800,
+      "startFrame": 318,
+      "endSample": 603200,
+      "endFrame": 377,
+      "triggerFrame": 318,
+      "audio": {
+        "startSample": 508800,
+        "endSample": 586386,
+        "sampleCount": 77586,
+        "startFrame": 318,
+        "endFrame": 367,
+        "sha256": "0338a6d17bcd3baf96b59b9339f4ba305cd79cd7090c57b15792a2ffcccc925b"
+      },
+      "pause": {
+        "requestedMs": 340,
+        "startSample": 586386,
+        "endSample": 602706,
+        "sampleCount": 16320,
+        "startFrame": 367,
+        "endFrame": 377
+      },
+      "alignmentPaddingSamples": 494,
+      "words": [
+        {
+          "phraseId": "odometer_zero",
+          "localIndex": 0,
+          "globalIndex": 31,
+          "text": "The",
+          "startSample": 508800,
+          "endSample": 518920,
+          "startFrame": 318,
+          "endFrame": 324
+        },
+        {
+          "phraseId": "odometer_zero",
+          "localIndex": 1,
+          "globalIndex": 32,
+          "text": "display",
+          "startSample": 518920,
+          "endSample": 542532,
+          "startFrame": 324,
+          "endFrame": 339
+        },
+        {
+          "phraseId": "odometer_zero",
+          "localIndex": 2,
+          "globalIndex": 33,
+          "text": "returns",
+          "startSample": 542532,
+          "endSample": 566145,
+          "startFrame": 339,
+          "endFrame": 353
+        },
+        {
+          "phraseId": "odometer_zero",
+          "localIndex": 3,
+          "globalIndex": 34,
+          "text": "to",
+          "startSample": 566145,
+          "endSample": 572892,
+          "startFrame": 353,
+          "endFrame": 358
+        },
+        {
+          "phraseId": "odometer_zero",
+          "localIndex": 4,
+          "globalIndex": 35,
+          "text": "zero.",
+          "startSample": 572892,
+          "endSample": 586386,
+          "startFrame": 358,
+          "endFrame": 367
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "id": "odometer_same_car",
+      "text": "The car did not become new.",
+      "visual": {
+        "action": "hold",
+        "displayFrom": "000000",
+        "displayTo": "000000",
+        "helper": {
+          "primary": "KEPT MOVING",
+          "recipe": "interpretation",
+          "secondary": "ONLY THE DISPLAY RESET",
+          "title": "THE MACHINE"
+        },
+        "status": "SAME CAR",
+        "tone": "neutral",
+        "triggerToken": null
+      },
+      "startSample": 603200,
+      "startFrame": 377,
+      "endSample": 689600,
+      "endFrame": 431,
+      "triggerFrame": 377,
+      "audio": {
+        "startSample": 603200,
+        "endSample": 673186,
+        "sampleCount": 69986,
+        "startFrame": 377,
+        "endFrame": 421,
+        "sha256": "1413d134f8fadeafb98404138f92fe50470838c044c3f86bfae9b2cd682f6db3"
+      },
+      "pause": {
+        "requestedMs": 320,
+        "startSample": 673186,
+        "endSample": 688546,
+        "sampleCount": 15360,
+        "startFrame": 421,
+        "endFrame": 431
+      },
+      "alignmentPaddingSamples": 1054,
+      "words": [
+        {
+          "phraseId": "odometer_same_car",
+          "localIndex": 0,
+          "globalIndex": 36,
+          "text": "The",
+          "startSample": 603200,
+          "endSample": 613198,
+          "startFrame": 377,
+          "endFrame": 383
+        },
+        {
+          "phraseId": "odometer_same_car",
+          "localIndex": 1,
+          "globalIndex": 37,
+          "text": "car",
+          "startSample": 613198,
+          "endSample": 623196,
+          "startFrame": 383,
+          "endFrame": 389
+        },
+        {
+          "phraseId": "odometer_same_car",
+          "localIndex": 2,
+          "globalIndex": 38,
+          "text": "did",
+          "startSample": 623196,
+          "endSample": 633194,
+          "startFrame": 389,
+          "endFrame": 396
+        },
+        {
+          "phraseId": "odometer_same_car",
+          "localIndex": 3,
+          "globalIndex": 39,
+          "text": "not",
+          "startSample": 633194,
+          "endSample": 643192,
+          "startFrame": 396,
+          "endFrame": 402
+        },
+        {
+          "phraseId": "odometer_same_car",
+          "localIndex": 4,
+          "globalIndex": 40,
+          "text": "become",
+          "startSample": 643192,
+          "endSample": 663187,
+          "startFrame": 402,
+          "endFrame": 414
+        },
+        {
+          "phraseId": "odometer_same_car",
+          "localIndex": 5,
+          "globalIndex": 41,
+          "text": "new.",
+          "startSample": 663187,
+          "endSample": 673186,
+          "startFrame": 414,
+          "endFrame": 421
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "id": "odometer_payoff",
+      "text": "The counter simply ran out of digits.",
+      "visual": {
+        "action": "resolve",
+        "displayFrom": "000000",
+        "displayTo": "000000",
+        "helper": {
+          "primary": "THE COUNTER",
+          "recipe": "interpretation",
+          "secondary": "RAN OUT OF DIGITS",
+          "title": "NOT A NEW CAR"
+        },
+        "status": "FINITE COUNTER",
+        "tone": "success",
+        "triggerToken": null
+      },
+      "startSample": 689600,
+      "startFrame": 431,
+      "endSample": 859200,
+      "endFrame": 537,
+      "triggerFrame": 431,
+      "audio": {
+        "startSample": 689600,
+        "endSample": 787014,
+        "sampleCount": 97414,
+        "startFrame": 431,
+        "endFrame": 492,
+        "sha256": "5086aa2dc0e554ea8a4ed9184a9e4a7f4f5892d16aa659e78a22fe836671b601"
+      },
+      "pause": {
+        "requestedMs": 500,
+        "startSample": 787014,
+        "endSample": 811014,
+        "sampleCount": 24000,
+        "startFrame": 492,
+        "endFrame": 507
+      },
+      "alignmentPaddingSamples": 186,
+      "words": [
+        {
+          "phraseId": "odometer_payoff",
+          "localIndex": 0,
+          "globalIndex": 42,
+          "text": "The",
+          "startSample": 689600,
+          "endSample": 699341,
+          "startFrame": 431,
+          "endFrame": 437
+        },
+        {
+          "phraseId": "odometer_payoff",
+          "localIndex": 1,
+          "globalIndex": 43,
+          "text": "counter",
+          "startSample": 699341,
+          "endSample": 722071,
+          "startFrame": 437,
+          "endFrame": 451
+        },
+        {
+          "phraseId": "odometer_payoff",
+          "localIndex": 2,
+          "globalIndex": 44,
+          "text": "simply",
+          "startSample": 722071,
+          "endSample": 741553,
+          "startFrame": 451,
+          "endFrame": 462
+        },
+        {
+          "phraseId": "odometer_payoff",
+          "localIndex": 3,
+          "globalIndex": 45,
+          "text": "ran",
+          "startSample": 741553,
+          "endSample": 751295,
+          "startFrame": 462,
+          "endFrame": 469
+        },
+        {
+          "phraseId": "odometer_payoff",
+          "localIndex": 4,
+          "globalIndex": 46,
+          "text": "out",
+          "startSample": 751295,
+          "endSample": 761036,
+          "startFrame": 469,
+          "endFrame": 475
+        },
+        {
+          "phraseId": "odometer_payoff",
+          "localIndex": 5,
+          "globalIndex": 47,
+          "text": "of",
+          "startSample": 761036,
+          "endSample": 767531,
+          "startFrame": 475,
+          "endFrame": 480
+        },
+        {
+          "phraseId": "odometer_payoff",
+          "localIndex": 6,
+          "globalIndex": 48,
+          "text": "digits.",
+          "startSample": 767531,
+          "endSample": 787014,
+          "startFrame": 480,
+          "endFrame": 492
+        }
+      ],
+      "finalHold": {
+        "startSample": 811200,
+        "endSample": 859200,
+        "sampleCount": 48000,
+        "startFrame": 507,
+        "endFrame": 537,
+        "frameCount": 30
+      }
+    }
+  ],
+  "words": [
+    {
+      "phraseId": "odometer_six_wheels",
+      "localIndex": 0,
+      "globalIndex": 0,
+      "text": "A",
+      "startSample": 0,
+      "endSample": 3280,
+      "startFrame": 0,
+      "endFrame": 2
+    },
+    {
+      "phraseId": "odometer_six_wheels",
+      "localIndex": 1,
+      "globalIndex": 1,
+      "text": "six-digit",
+      "startSample": 3280,
+      "endSample": 29516,
+      "startFrame": 2,
+      "endFrame": 18
+    },
+    {
+      "phraseId": "odometer_six_wheels",
+      "localIndex": 2,
+      "globalIndex": 2,
+      "text": "odometer",
+      "startSample": 29516,
+      "endSample": 55752,
+      "startFrame": 18,
+      "endFrame": 34
+    },
+    {
+      "phraseId": "odometer_six_wheels",
+      "localIndex": 3,
+      "globalIndex": 3,
+      "text": "has",
+      "startSample": 55752,
+      "endSample": 65592,
+      "startFrame": 34,
+      "endFrame": 41
+    },
+    {
+      "phraseId": "odometer_six_wheels",
+      "localIndex": 4,
+      "globalIndex": 4,
+      "text": "six",
+      "startSample": 65592,
+      "endSample": 75431,
+      "startFrame": 41,
+      "endFrame": 47
+    },
+    {
+      "phraseId": "odometer_six_wheels",
+      "localIndex": 5,
+      "globalIndex": 5,
+      "text": "number",
+      "startSample": 75431,
+      "endSample": 95108,
+      "startFrame": 47,
+      "endFrame": 59
+    },
+    {
+      "phraseId": "odometer_six_wheels",
+      "localIndex": 6,
+      "globalIndex": 6,
+      "text": "wheels.",
+      "startSample": 95108,
+      "endSample": 114786,
+      "startFrame": 59,
+      "endFrame": 72
+    },
+    {
+      "phraseId": "odometer_carry",
+      "localIndex": 0,
+      "globalIndex": 7,
+      "text": "Each",
+      "startSample": 129600,
+      "endSample": 141253,
+      "startFrame": 81,
+      "endFrame": 88
+    },
+    {
+      "phraseId": "odometer_carry",
+      "localIndex": 1,
+      "globalIndex": 8,
+      "text": "wheel",
+      "startSample": 141253,
+      "endSample": 155820,
+      "startFrame": 88,
+      "endFrame": 97
+    },
+    {
+      "phraseId": "odometer_carry",
+      "localIndex": 2,
+      "globalIndex": 9,
+      "text": "carries",
+      "startSample": 155820,
+      "endSample": 176212,
+      "startFrame": 97,
+      "endFrame": 109
+    },
+    {
+      "phraseId": "odometer_carry",
+      "localIndex": 3,
+      "globalIndex": 10,
+      "text": "into",
+      "startSample": 176212,
+      "endSample": 187866,
+      "startFrame": 109,
+      "endFrame": 117
+    },
+    {
+      "phraseId": "odometer_carry",
+      "localIndex": 4,
+      "globalIndex": 11,
+      "text": "the",
+      "startSample": 187866,
+      "endSample": 196606,
+      "startFrame": 117,
+      "endFrame": 123
+    },
+    {
+      "phraseId": "odometer_carry",
+      "localIndex": 5,
+      "globalIndex": 12,
+      "text": "next",
+      "startSample": 196606,
+      "endSample": 208260,
+      "startFrame": 123,
+      "endFrame": 130
+    },
+    {
+      "phraseId": "odometer_carry",
+      "localIndex": 6,
+      "globalIndex": 13,
+      "text": "after",
+      "startSample": 208260,
+      "endSample": 222826,
+      "startFrame": 130,
+      "endFrame": 139
+    },
+    {
+      "phraseId": "odometer_carry",
+      "localIndex": 7,
+      "globalIndex": 14,
+      "text": "nine.",
+      "startSample": 222826,
+      "endSample": 234480,
+      "startFrame": 139,
+      "endFrame": 147
+    },
+    {
+      "phraseId": "odometer_last_value",
+      "localIndex": 0,
+      "globalIndex": 15,
+      "text": "At",
+      "startSample": 251200,
+      "endSample": 258300,
+      "startFrame": 157,
+      "endFrame": 161
+    },
+    {
+      "phraseId": "odometer_last_value",
+      "localIndex": 1,
+      "globalIndex": 16,
+      "text": "the",
+      "startSample": 258300,
+      "endSample": 268949,
+      "startFrame": 161,
+      "endFrame": 168
+    },
+    {
+      "phraseId": "odometer_last_value",
+      "localIndex": 2,
+      "globalIndex": 17,
+      "text": "maximum,",
+      "startSample": 268949,
+      "endSample": 293797,
+      "startFrame": 168,
+      "endFrame": 183
+    },
+    {
+      "phraseId": "odometer_last_value",
+      "localIndex": 3,
+      "globalIndex": 18,
+      "text": "all",
+      "startSample": 293797,
+      "endSample": 304446,
+      "startFrame": 183,
+      "endFrame": 190
+    },
+    {
+      "phraseId": "odometer_last_value",
+      "localIndex": 4,
+      "globalIndex": 19,
+      "text": "six",
+      "startSample": 304446,
+      "endSample": 315096,
+      "startFrame": 190,
+      "endFrame": 197
+    },
+    {
+      "phraseId": "odometer_last_value",
+      "localIndex": 5,
+      "globalIndex": 20,
+      "text": "wheels",
+      "startSample": 315096,
+      "endSample": 336394,
+      "startFrame": 197,
+      "endFrame": 210
+    },
+    {
+      "phraseId": "odometer_last_value",
+      "localIndex": 6,
+      "globalIndex": 21,
+      "text": "show",
+      "startSample": 336394,
+      "endSample": 350593,
+      "startFrame": 210,
+      "endFrame": 219
+    },
+    {
+      "phraseId": "odometer_last_value",
+      "localIndex": 7,
+      "globalIndex": 22,
+      "text": "nine.",
+      "startSample": 350593,
+      "endSample": 364792,
+      "startFrame": 219,
+      "endFrame": 228
+    },
+    {
+      "phraseId": "odometer_one_more",
+      "localIndex": 0,
+      "globalIndex": 23,
+      "text": "One",
+      "startSample": 380800,
+      "endSample": 389733,
+      "startFrame": 238,
+      "endFrame": 243
+    },
+    {
+      "phraseId": "odometer_one_more",
+      "localIndex": 1,
+      "globalIndex": 24,
+      "text": "more",
+      "startSample": 389733,
+      "endSample": 401644,
+      "startFrame": 243,
+      "endFrame": 251
+    },
+    {
+      "phraseId": "odometer_one_more",
+      "localIndex": 2,
+      "globalIndex": 25,
+      "text": "mile",
+      "startSample": 401644,
+      "endSample": 413555,
+      "startFrame": 251,
+      "endFrame": 259
+    },
+    {
+      "phraseId": "odometer_one_more",
+      "localIndex": 3,
+      "globalIndex": 26,
+      "text": "carries",
+      "startSample": 413555,
+      "endSample": 434399,
+      "startFrame": 259,
+      "endFrame": 271
+    },
+    {
+      "phraseId": "odometer_one_more",
+      "localIndex": 4,
+      "globalIndex": 27,
+      "text": "through",
+      "startSample": 434399,
+      "endSample": 455242,
+      "startFrame": 271,
+      "endFrame": 284
+    },
+    {
+      "phraseId": "odometer_one_more",
+      "localIndex": 5,
+      "globalIndex": 28,
+      "text": "all",
+      "startSample": 455242,
+      "endSample": 464176,
+      "startFrame": 284,
+      "endFrame": 290
+    },
+    {
+      "phraseId": "odometer_one_more",
+      "localIndex": 6,
+      "globalIndex": 29,
+      "text": "six",
+      "startSample": 464176,
+      "endSample": 473109,
+      "startFrame": 290,
+      "endFrame": 296
+    },
+    {
+      "phraseId": "odometer_one_more",
+      "localIndex": 7,
+      "globalIndex": 30,
+      "text": "wheels.",
+      "startSample": 473109,
+      "endSample": 490976,
+      "startFrame": 296,
+      "endFrame": 307
+    },
+    {
+      "phraseId": "odometer_zero",
+      "localIndex": 0,
+      "globalIndex": 31,
+      "text": "The",
+      "startSample": 508800,
+      "endSample": 518920,
+      "startFrame": 318,
+      "endFrame": 324
+    },
+    {
+      "phraseId": "odometer_zero",
+      "localIndex": 1,
+      "globalIndex": 32,
+      "text": "display",
+      "startSample": 518920,
+      "endSample": 542532,
+      "startFrame": 324,
+      "endFrame": 339
+    },
+    {
+      "phraseId": "odometer_zero",
+      "localIndex": 2,
+      "globalIndex": 33,
+      "text": "returns",
+      "startSample": 542532,
+      "endSample": 566145,
+      "startFrame": 339,
+      "endFrame": 353
+    },
+    {
+      "phraseId": "odometer_zero",
+      "localIndex": 3,
+      "globalIndex": 34,
+      "text": "to",
+      "startSample": 566145,
+      "endSample": 572892,
+      "startFrame": 353,
+      "endFrame": 358
+    },
+    {
+      "phraseId": "odometer_zero",
+      "localIndex": 4,
+      "globalIndex": 35,
+      "text": "zero.",
+      "startSample": 572892,
+      "endSample": 586386,
+      "startFrame": 358,
+      "endFrame": 367
+    },
+    {
+      "phraseId": "odometer_same_car",
+      "localIndex": 0,
+      "globalIndex": 36,
+      "text": "The",
+      "startSample": 603200,
+      "endSample": 613198,
+      "startFrame": 377,
+      "endFrame": 383
+    },
+    {
+      "phraseId": "odometer_same_car",
+      "localIndex": 1,
+      "globalIndex": 37,
+      "text": "car",
+      "startSample": 613198,
+      "endSample": 623196,
+      "startFrame": 383,
+      "endFrame": 389
+    },
+    {
+      "phraseId": "odometer_same_car",
+      "localIndex": 2,
+      "globalIndex": 38,
+      "text": "did",
+      "startSample": 623196,
+      "endSample": 633194,
+      "startFrame": 389,
+      "endFrame": 396
+    },
+    {
+      "phraseId": "odometer_same_car",
+      "localIndex": 3,
+      "globalIndex": 39,
+      "text": "not",
+      "startSample": 633194,
+      "endSample": 643192,
+      "startFrame": 396,
+      "endFrame": 402
+    },
+    {
+      "phraseId": "odometer_same_car",
+      "localIndex": 4,
+      "globalIndex": 40,
+      "text": "become",
+      "startSample": 643192,
+      "endSample": 663187,
+      "startFrame": 402,
+      "endFrame": 414
+    },
+    {
+      "phraseId": "odometer_same_car",
+      "localIndex": 5,
+      "globalIndex": 41,
+      "text": "new.",
+      "startSample": 663187,
+      "endSample": 673186,
+      "startFrame": 414,
+      "endFrame": 421
+    },
+    {
+      "phraseId": "odometer_payoff",
+      "localIndex": 0,
+      "globalIndex": 42,
+      "text": "The",
+      "startSample": 689600,
+      "endSample": 699341,
+      "startFrame": 431,
+      "endFrame": 437
+    },
+    {
+      "phraseId": "odometer_payoff",
+      "localIndex": 1,
+      "globalIndex": 43,
+      "text": "counter",
+      "startSample": 699341,
+      "endSample": 722071,
+      "startFrame": 437,
+      "endFrame": 451
+    },
+    {
+      "phraseId": "odometer_payoff",
+      "localIndex": 2,
+      "globalIndex": 44,
+      "text": "simply",
+      "startSample": 722071,
+      "endSample": 741553,
+      "startFrame": 451,
+      "endFrame": 462
+    },
+    {
+      "phraseId": "odometer_payoff",
+      "localIndex": 3,
+      "globalIndex": 45,
+      "text": "ran",
+      "startSample": 741553,
+      "endSample": 751295,
+      "startFrame": 462,
+      "endFrame": 469
+    },
+    {
+      "phraseId": "odometer_payoff",
+      "localIndex": 4,
+      "globalIndex": 46,
+      "text": "out",
+      "startSample": 751295,
+      "endSample": 761036,
+      "startFrame": 469,
+      "endFrame": 475
+    },
+    {
+      "phraseId": "odometer_payoff",
+      "localIndex": 5,
+      "globalIndex": 47,
+      "text": "of",
+      "startSample": 761036,
+      "endSample": 767531,
+      "startFrame": 475,
+      "endFrame": 480
+    },
+    {
+      "phraseId": "odometer_payoff",
+      "localIndex": 6,
+      "globalIndex": 48,
+      "text": "digits.",
+      "startSample": 767531,
+      "endSample": 787014,
+      "startFrame": 480,
+      "endFrame": 492
+    }
+  ],
+  "frameClock": {
+    "fps": 30,
+    "sampleRate": 48000,
+    "samplesPerFrame": 1600,
+    "durationFrames": 537,
+    "durationSamples": 859200,
+    "speechEndFrame": 492,
+    "speechEndSample": 787014,
+    "finalHold": {
+      "startSample": 811200,
+      "endSample": 859200,
+      "sampleCount": 48000,
+      "startFrame": 507,
+      "endFrame": 537,
+      "frameCount": 30
+    }
+  },
+  "provenance": {
+    "profile": "mechanism_explainer_calibration_audio_v1",
+    "purpose": "quality_calibration_only",
+    "calibration": true,
+    "publishable": false,
+    "rightsStatus": "commercial_use_not_attested",
+    "commercialUseAttested": false,
+    "commercialUseAttestation": null,
+    "provider": "kokoro_local",
+    "providerExecution": "one_helper_spawn_per_phrase",
+    "providerProcessShell": false,
+    "modelId": "kokoro-v1.0-onnx-f32",
+    "runtimeVersion": "kokoro-onnx-0.5.0",
+    "voiceId": "af_heart",
+    "language": "en",
+    "speakingRate": 1.08,
+    "licenseReference": "Apache-2.0:hexgrad/Kokoro-82M-v1.0",
+    "normalization": {
+      "tool": "ffmpeg",
+      "sampleRate": 48000,
+      "channels": 1,
+      "codec": "pcm_s16le"
+    },
+    "inputSha256": "50c8601867fc0cb8a3c1ca3cbd4e2d5f50a1fa94dafd73df94f8c04370aeacf0",
+    "audioSha256": "b4f0fbe94898747a0ba25d939da64a3e14d24f9c5a657e216c5dd19ce6f6196a",
+    "synthesisReports": [
+      {
+        "bytes": 114830,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 57393
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 104924,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 52440
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 113636,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 56796
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 110220,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 55088
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 77630,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 38793
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 70030,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 34993
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 97458,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 48707
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      }
+    ]
+  },
+  "calibration": true,
+  "publishable": false,
+  "commercialUseAttested": false,
+  "releaseBlockers": [
+    "CALIBRATION_ONLY",
+    "COMMERCIAL_USE_ATTESTATION_REQUIRED"
+  ],
+  "normalizedAudioPersisted": false
+}

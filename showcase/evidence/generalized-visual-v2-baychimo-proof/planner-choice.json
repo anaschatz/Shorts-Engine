@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "startPropositionIndex": 0,
+      "endPropositionIndexExclusive": 4,
+      "layoutIntent": "directed_flow",
+      "focusEntityIndex": 4
+    },
+    {
+      "startPropositionIndex": 4,
+      "endPropositionIndexExclusive": 8,
+      "layoutIntent": "timeline_track",
+      "focusEntityIndex": 3
+    },
+    {
+      "startPropositionIndex": 8,
+      "endPropositionIndexExclusive": 12,
+      "layoutIntent": "radial_focus",
+      "focusEntityIndex": 3
+    },
+    {
+      "startPropositionIndex": 12,
+      "endPropositionIndexExclusive": 15,
+      "layoutIntent": "layered_stack",
+      "focusEntityIndex": 3
+    }
+  ],
+  "contentHash": "f574be3d7995c6ff11b506d872427aadfdd7f959f7ced84b414a3e3b3ce8ec1c"
+}

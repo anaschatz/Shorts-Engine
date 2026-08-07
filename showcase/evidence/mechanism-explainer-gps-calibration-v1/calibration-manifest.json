@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism_explainer_calibration_batch_v1",
+  "status": "human_review_pending",
+  "featureGated": true,
+  "calibration": true,
+  "publishable": false,
+  "generatedAt": "2026-07-30T15:46:19.326Z",
+  "storyId": "gps",
+  "storySpecId": "gps_week_counter_mechanism_v1",
+  "sources": {
+    "storySpec": {
+      "path": "eval/narrated/dark-curiosity/calibration/gps-week-counter-mechanism-v1.json",
+      "fileHash": "134ce9505f0ffdb066541dbd1307c201309b489378fa29012777bdab12639837"
+    },
+    "renderer": {
+      "path": "renderer/hyperframes/mechanism-explainer-v1.mjs",
+      "fileHash": "2ee65dbea4702f5a7e39ad272ce930e6c9c4c984e89282041f4e0f9e6dccb93c",
+      "profileId": "mechanism-explainer-v1",
+      "compositionHash": "6fccbf46eca263d688993608d6053ea97efc0c276a13e33c43548928391ef380",
+      "storySpecHash": "6734bce33a887aab6bd30981c9967f687ce5772c1c597a9af0039893991b1a63"
+    },
+    "audioHelper": {
+      "path": "tools/lib/mechanism-explainer-calibration-audio.mjs",
+      "fileHash": "c4119e6fe0cbc16399796196f611f63b0ae916078744cc9474a65d7618b81112"
+    }
+  },
+  "timeline": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationFrames": 899,
+    "durationSamples": 1438400,
+    "samplesPerFrame": 1600,
+    "finalHoldFrames": 30
+  },
+  "narration": {
+    "audioSha256": "23463084c240c1a01268a56ce8cbc3b31241d5aa419e14aa9debfc2d9cf90bd2",
+    "provider": "kokoro_local",
+    "purpose": "quality_calibration_only",
+    "commercialUseAttested": false,
+    "productionRightsAsserted": false,
+    "publishable": false
+  },
+  "captions": {
+    "manifestHash": "27c5e5aaed2ab885a82ea03b736bff2ca4cf888d1d7854851754c860b700dcf5",
+    "cueCount": 11,
+    "wordCount": 78,
+    "themeId": "human_readable_purple_v1",
+    "timingMode": "frame_boundary_floor_v1",
+    "burnedIn": true,
+    "sidecarVtt": true
+  },
+  "assets": {
+    "localOnly": true,
+    "remoteRequestCount": 0,
+    "browserRequests": [
+      "file:///var/folders/cj/zy13l1pd5wd72rs0tgvkcl9r0000gn/T/mechanism-explainer-gps-calibration-v1-NMOQxa/composition.html"
+    ],
+    "storyProvidedGeometry": false,
+    "storyProvidedExecutableContent": false
+  },
+  "artifacts": {
+    "video": {
+      "path": "showcase/assets/mechanism-explainer-gps-calibration-v1.mp4",
+      "sha256": "0585769d9b0380891262173fd4bfb182d49596a5cbf4e725d7389b8a05207e94",
+      "bytes": 1480214
+    },
+    "vtt": {
+      "path": "showcase/assets/mechanism-explainer-gps-calibration-v1.vtt",
+      "sha256": "86e91682106eeead238915dc7d9c860a62633818dd98bf571a63530dafe429fa",
+      "bytes": 787
+    },
+    "contactSheet": {
+      "path": "showcase/assets/mechanism-explainer-gps-calibration-v1-contact-sheet.png",
+      "sha256": "becc72890fcb59afc2b49de0bb4dfe221cfe97af77c7a298df4c158f3a348b95",
+      "bytes": 205576
+    },
+    "ass": {
+      "path": "showcase/evidence/mechanism-explainer-gps-calibration-v1/caption-preview.ass",
+      "sha256": "e3c2a051ee996e52b23d275f17cb2bdd7ac3888a28c339ecfd9e750e0b5fce9e",
+      "bytes": 1576
+    }
+  },
+  "blockers": [
+    "CALIBRATION_ONLY",
+    "COMMERCIAL_USE_ATTESTATION_REQUIRED",
+    "HUMAN_CREATIVE_REVIEW_REQUIRED"
+  ]
+}

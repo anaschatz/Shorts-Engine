@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism_explainer_calibration_render_report_v1",
+  "status": "human_review_pending",
+  "publishable": false,
+  "generatedAt": "2026-07-30T15:46:19.326Z",
+  "storyId": "gps",
+  "output": {
+    "path": "showcase/assets/mechanism-explainer-gps-calibration-v1.mp4",
+    "sha256": "0585769d9b0380891262173fd4bfb182d49596a5cbf4e725d7389b8a05207e94",
+    "bytes": 1480214
+  },
+  "contactSheet": {
+    "path": "showcase/assets/mechanism-explainer-gps-calibration-v1-contact-sheet.png",
+    "sha256": "becc72890fcb59afc2b49de0bb4dfe221cfe97af77c7a298df4c158f3a348b95",
+    "bytes": 205576
+  },
+  "compilation": {
+    "profileId": "mechanism-explainer-v1",
+    "compositionHash": "6fccbf46eca263d688993608d6053ea97efc0c276a13e33c43548928391ef380",
+    "storySpecHash": "6734bce33a887aab6bd30981c9967f687ce5772c1c597a9af0039893991b1a63",
+    "deterministicCompile": true,
+    "fixedGeometryHash": "9caff9630e0eb1c19ae6527eab03c8dd641c18adb79219352923cb3fc9169353",
+    "primaryTransform": "translate(540 580)"
+  },
+  "audio": {
+    "audioSha256": "23463084c240c1a01268a56ce8cbc3b31241d5aa419e14aa9debfc2d9cf90bd2",
+    "durationSamples": 1438400,
+    "expectedSamples": 1438400,
+    "sampleRate": 48000,
+    "exactFrameClock": true,
+    "commercialUseAttested": false
+  },
+  "captions": {
+    "manifestHash": "27c5e5aaed2ab885a82ea03b736bff2ca4cf888d1d7854851754c860b700dcf5",
+    "cueCount": 11,
+    "wordCount": 78,
+    "themeId": "human_readable_purple_v1",
+    "timingMode": "frame_boundary_floor_v1",
+    "burnedIn": true,
+    "sidecarVtt": true
+  },
+  "technicalProbe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frameCount": 899,
+    "durationSeconds": 29.966667,
+    "videoStreamCount": 1,
+    "videoCodec": "h264",
+    "pixelFormat": "yuv420p",
+    "audioStreamCount": 1,
+    "audioCodec": "aac",
+    "audioSampleRate": 48000,
+    "audioDurationSeconds": 29.966,
+    "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+  },
+  "blockers": [
+    "CALIBRATION_ONLY",
+    "COMMERCIAL_USE_ATTESTATION_REQUIRED",
+    "HUMAN_CREATIVE_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,2266 @@
+{
+  "schemaVersion": 1,
+  "id": "gps_week_counter_mechanism_v1",
+  "profile": "mechanism_explainer_calibration_audio_v1",
+  "durationFrames": 899,
+  "durationSamples": 1438400,
+  "durationSeconds": 29.966667,
+  "speechEndFrame": 854,
+  "sampleRate": 48000,
+  "channels": 1,
+  "fps": 30,
+  "samplesPerFrame": 1600,
+  "audioSha256": "23463084c240c1a01268a56ce8cbc3b31241d5aa419e14aa9debfc2d9cf90bd2",
+  "phrases": [
+    {
+      "index": 0,
+      "id": "gps_week_not_date",
+      "text": "GPS does not send a full calendar date.",
+      "visual": {
+        "action": "enter",
+        "displayFrom": "0838",
+        "displayTo": "0838",
+        "helper": {
+          "primary": "WEEK NUMBER",
+          "recipe": "interpretation",
+          "secondary": "NOT A FULL DATE",
+          "title": "GPS SENDS"
+        },
+        "status": "GPS SIGNAL",
+        "tone": "neutral",
+        "triggerToken": null
+      },
+      "startSample": 0,
+      "startFrame": 0,
+      "endSample": 129600,
+      "endFrame": 81,
+      "triggerFrame": 0,
+      "audio": {
+        "startSample": 0,
+        "endSample": 116162,
+        "sampleCount": 116162,
+        "startFrame": 0,
+        "endFrame": 73,
+        "sha256": "dac0e3118817c336024af531fae4367a6a96a74e490b8b80a8b37a79cf10a334"
+      },
+      "pause": {
+        "requestedMs": 260,
+        "startSample": 116162,
+        "endSample": 128642,
+        "sampleCount": 12480,
+        "startFrame": 73,
+        "endFrame": 81
+      },
+      "alignmentPaddingSamples": 958,
+      "words": [
+        {
+          "phraseId": "gps_week_not_date",
+          "localIndex": 0,
+          "globalIndex": 0,
+          "text": "GPS",
+          "startSample": 0,
+          "endSample": 11241,
+          "startFrame": 0,
+          "endFrame": 7
+        },
+        {
+          "phraseId": "gps_week_not_date",
+          "localIndex": 1,
+          "globalIndex": 1,
+          "text": "does",
+          "startSample": 11241,
+          "endSample": 26230,
+          "startFrame": 7,
+          "endFrame": 16
+        },
+        {
+          "phraseId": "gps_week_not_date",
+          "localIndex": 2,
+          "globalIndex": 2,
+          "text": "not",
+          "startSample": 26230,
+          "endSample": 37472,
+          "startFrame": 16,
+          "endFrame": 23
+        },
+        {
+          "phraseId": "gps_week_not_date",
+          "localIndex": 3,
+          "globalIndex": 3,
+          "text": "send",
+          "startSample": 37472,
+          "endSample": 52460,
+          "startFrame": 23,
+          "endFrame": 33
+        },
+        {
+          "phraseId": "gps_week_not_date",
+          "localIndex": 4,
+          "globalIndex": 4,
+          "text": "a",
+          "startSample": 52460,
+          "endSample": 56208,
+          "startFrame": 33,
+          "endFrame": 36
+        },
+        {
+          "phraseId": "gps_week_not_date",
+          "localIndex": 5,
+          "globalIndex": 5,
+          "text": "full",
+          "startSample": 56208,
+          "endSample": 71197,
+          "startFrame": 36,
+          "endFrame": 45
+        },
+        {
+          "phraseId": "gps_week_not_date",
+          "localIndex": 6,
+          "globalIndex": 6,
+          "text": "calendar",
+          "startSample": 71197,
+          "endSample": 101173,
+          "startFrame": 45,
+          "endFrame": 63
+        },
+        {
+          "phraseId": "gps_week_not_date",
+          "localIndex": 7,
+          "globalIndex": 7,
+          "text": "date.",
+          "startSample": 101173,
+          "endSample": 116162,
+          "startFrame": 63,
+          "endFrame": 73
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "id": "gps_ten_bits",
+      "text": "Older signals stored that week number in ten bits.",
+      "visual": {
+        "action": "update",
+        "displayFrom": "0838",
+        "displayTo": "0838",
+        "helper": {
+          "primary": "10 BITS",
+          "recipe": "range",
+          "secondary": "1,024 POSSIBLE VALUES",
+          "title": "FIELD SIZE"
+        },
+        "status": "10-BIT WEEK FIELD",
+        "tone": "neutral",
+        "triggerToken": null
+      },
+      "startSample": 129600,
+      "startFrame": 81,
+      "endSample": 275200,
+      "endFrame": 172,
+      "triggerFrame": 81,
+      "audio": {
+        "startSample": 129600,
+        "endSample": 260136,
+        "sampleCount": 130536,
+        "startFrame": 81,
+        "endFrame": 163,
+        "sha256": "72d40fbf73df8197f47a4c445d4cc725902d11215c63a566ae4d3c2281edafac"
+      },
+      "pause": {
+        "requestedMs": 300,
+        "startSample": 260136,
+        "endSample": 274536,
+        "sampleCount": 14400,
+        "startFrame": 163,
+        "endFrame": 172
+      },
+      "alignmentPaddingSamples": 664,
+      "words": [
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 0,
+          "globalIndex": 8,
+          "text": "Older",
+          "startSample": 129600,
+          "endSample": 145518,
+          "startFrame": 81,
+          "endFrame": 90
+        },
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 1,
+          "globalIndex": 9,
+          "text": "signals",
+          "startSample": 145518,
+          "endSample": 167805,
+          "startFrame": 90,
+          "endFrame": 104
+        },
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 2,
+          "globalIndex": 10,
+          "text": "stored",
+          "startSample": 167805,
+          "endSample": 186907,
+          "startFrame": 104,
+          "endFrame": 116
+        },
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 3,
+          "globalIndex": 11,
+          "text": "that",
+          "startSample": 186907,
+          "endSample": 199642,
+          "startFrame": 116,
+          "endFrame": 124
+        },
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 4,
+          "globalIndex": 12,
+          "text": "week",
+          "startSample": 199642,
+          "endSample": 212378,
+          "startFrame": 124,
+          "endFrame": 132
+        },
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 5,
+          "globalIndex": 13,
+          "text": "number",
+          "startSample": 212378,
+          "endSample": 231480,
+          "startFrame": 132,
+          "endFrame": 143
+        },
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 6,
+          "globalIndex": 14,
+          "text": "in",
+          "startSample": 231480,
+          "endSample": 237848,
+          "startFrame": 143,
+          "endFrame": 148
+        },
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 7,
+          "globalIndex": 15,
+          "text": "ten",
+          "startSample": 237848,
+          "endSample": 247400,
+          "startFrame": 148,
+          "endFrame": 154
+        },
+        {
+          "phraseId": "gps_ten_bits",
+          "localIndex": 8,
+          "globalIndex": 16,
+          "text": "bits.",
+          "startSample": 247400,
+          "endSample": 260136,
+          "startFrame": 154,
+          "endFrame": 163
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "id": "gps_value_range",
+      "text": "The range ends at 1,023.",
+      "visual": {
+        "action": "update",
+        "displayFrom": "0838",
+        "displayTo": "1023",
+        "helper": {
+          "primary": "0",
+          "recipe": "range",
+          "secondary": "1,023",
+          "title": "1,024 VALUES"
+        },
+        "status": "LAST POSSIBLE VALUE",
+        "tone": "accent",
+        "triggerToken": null
+      },
+      "startSample": 275200,
+      "startFrame": 172,
+      "endSample": 409600,
+      "endFrame": 256,
+      "triggerFrame": 172,
+      "audio": {
+        "startSample": 275200,
+        "endSample": 393844,
+        "sampleCount": 118644,
+        "startFrame": 172,
+        "endFrame": 247,
+        "sha256": "7549d339d5af3abb6a280c6c1877c140321dff802ddad1351d1677473c886e8f"
+      },
+      "pause": {
+        "requestedMs": 320,
+        "startSample": 393844,
+        "endSample": 409204,
+        "sampleCount": 15360,
+        "startFrame": 247,
+        "endFrame": 256
+      },
+      "alignmentPaddingSamples": 396,
+      "words": [
+        {
+          "phraseId": "gps_value_range",
+          "localIndex": 0,
+          "globalIndex": 17,
+          "text": "The",
+          "startSample": 275200,
+          "endSample": 294974,
+          "startFrame": 172,
+          "endFrame": 184
+        },
+        {
+          "phraseId": "gps_value_range",
+          "localIndex": 1,
+          "globalIndex": 18,
+          "text": "range",
+          "startSample": 294974,
+          "endSample": 327930,
+          "startFrame": 184,
+          "endFrame": 205
+        },
+        {
+          "phraseId": "gps_value_range",
+          "localIndex": 2,
+          "globalIndex": 19,
+          "text": "ends",
+          "startSample": 327930,
+          "endSample": 354295,
+          "startFrame": 205,
+          "endFrame": 221
+        },
+        {
+          "phraseId": "gps_value_range",
+          "localIndex": 3,
+          "globalIndex": 20,
+          "text": "at",
+          "startSample": 354295,
+          "endSample": 367478,
+          "startFrame": 221,
+          "endFrame": 230
+        },
+        {
+          "phraseId": "gps_value_range",
+          "localIndex": 4,
+          "globalIndex": 21,
+          "text": "1,023.",
+          "startSample": 367478,
+          "endSample": 393844,
+          "startFrame": 230,
+          "endFrame": 247
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "id": "gps_at_limit",
+      "text": "At the limit, there is no new number left.",
+      "visual": {
+        "action": "hold",
+        "displayFrom": "1023",
+        "displayTo": "1023",
+        "helper": {
+          "primary": "1,023",
+          "recipe": "range",
+          "secondary": "NO NEXT VALUE",
+          "title": "END OF THE FIELD"
+        },
+        "status": "COUNTER FULL",
+        "tone": "warning",
+        "triggerToken": null
+      },
+      "startSample": 409600,
+      "startFrame": 256,
+      "endSample": 524800,
+      "endFrame": 328,
+      "triggerFrame": 256,
+      "audio": {
+        "startSample": 409600,
+        "endSample": 509658,
+        "sampleCount": 100058,
+        "startFrame": 256,
+        "endFrame": 319,
+        "sha256": "7555fa0679d1ad6a5eceaaf4bf29efc10030afaf31875692072f36afd92d4903"
+      },
+      "pause": {
+        "requestedMs": 300,
+        "startSample": 509658,
+        "endSample": 524058,
+        "sampleCount": 14400,
+        "startFrame": 319,
+        "endFrame": 328
+      },
+      "alignmentPaddingSamples": 742,
+      "words": [
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 0,
+          "globalIndex": 22,
+          "text": "At",
+          "startSample": 409600,
+          "endSample": 415854,
+          "startFrame": 256,
+          "endFrame": 260
+        },
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 1,
+          "globalIndex": 23,
+          "text": "the",
+          "startSample": 415854,
+          "endSample": 425234,
+          "startFrame": 260,
+          "endFrame": 266
+        },
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 2,
+          "globalIndex": 24,
+          "text": "limit,",
+          "startSample": 425234,
+          "endSample": 440868,
+          "startFrame": 266,
+          "endFrame": 275
+        },
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 3,
+          "globalIndex": 25,
+          "text": "there",
+          "startSample": 440868,
+          "endSample": 456501,
+          "startFrame": 275,
+          "endFrame": 285
+        },
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 4,
+          "globalIndex": 26,
+          "text": "is",
+          "startSample": 456501,
+          "endSample": 462756,
+          "startFrame": 285,
+          "endFrame": 289
+        },
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 5,
+          "globalIndex": 27,
+          "text": "no",
+          "startSample": 462756,
+          "endSample": 469010,
+          "startFrame": 289,
+          "endFrame": 294
+        },
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 6,
+          "globalIndex": 28,
+          "text": "new",
+          "startSample": 469010,
+          "endSample": 478390,
+          "startFrame": 294,
+          "endFrame": 300
+        },
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 7,
+          "globalIndex": 29,
+          "text": "number",
+          "startSample": 478390,
+          "endSample": 497150,
+          "startFrame": 300,
+          "endFrame": 311
+        },
+        {
+          "phraseId": "gps_at_limit",
+          "localIndex": 8,
+          "globalIndex": 30,
+          "text": "left.",
+          "startSample": 497150,
+          "endSample": 509658,
+          "startFrame": 311,
+          "endFrame": 319
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "id": "gps_rollover",
+      "text": "Zero is sent again when the next week begins.",
+      "visual": {
+        "action": "rollover",
+        "displayFrom": "1023",
+        "displayTo": "0000",
+        "helper": {
+          "primary": "1,023 BECOMES 0000",
+          "recipe": "range",
+          "secondary": "THE FIELD WRAPS",
+          "title": "NEXT WEEK"
+        },
+        "status": "VALUE REPEATS",
+        "tone": "warning",
+        "triggerToken": null
+      },
+      "startSample": 524800,
+      "startFrame": 328,
+      "endSample": 660800,
+      "endFrame": 413,
+      "triggerFrame": 328,
+      "audio": {
+        "startSample": 524800,
+        "endSample": 641864,
+        "sampleCount": 117064,
+        "startFrame": 328,
+        "endFrame": 402,
+        "sha256": "649dd77dfae87c93c14156031ec13a4181588ca1393cdb9dc006b90f01d41e46"
+      },
+      "pause": {
+        "requestedMs": 380,
+        "startSample": 641864,
+        "endSample": 660104,
+        "sampleCount": 18240,
+        "startFrame": 402,
+        "endFrame": 413
+      },
+      "alignmentPaddingSamples": 696,
+      "words": [
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 0,
+          "globalIndex": 31,
+          "text": "Zero",
+          "startSample": 524800,
+          "endSample": 537807,
+          "startFrame": 328,
+          "endFrame": 336
+        },
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 1,
+          "globalIndex": 32,
+          "text": "is",
+          "startSample": 537807,
+          "endSample": 544311,
+          "startFrame": 336,
+          "endFrame": 340
+        },
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 2,
+          "globalIndex": 33,
+          "text": "sent",
+          "startSample": 544311,
+          "endSample": 557318,
+          "startFrame": 340,
+          "endFrame": 349
+        },
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 3,
+          "globalIndex": 34,
+          "text": "again",
+          "startSample": 557318,
+          "endSample": 573576,
+          "startFrame": 349,
+          "endFrame": 359
+        },
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 4,
+          "globalIndex": 35,
+          "text": "when",
+          "startSample": 573576,
+          "endSample": 586584,
+          "startFrame": 359,
+          "endFrame": 367
+        },
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 5,
+          "globalIndex": 36,
+          "text": "the",
+          "startSample": 586584,
+          "endSample": 596339,
+          "startFrame": 367,
+          "endFrame": 373
+        },
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 6,
+          "globalIndex": 37,
+          "text": "next",
+          "startSample": 596339,
+          "endSample": 609346,
+          "startFrame": 373,
+          "endFrame": 381
+        },
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 7,
+          "globalIndex": 38,
+          "text": "week",
+          "startSample": 609346,
+          "endSample": 622353,
+          "startFrame": 381,
+          "endFrame": 390
+        },
+        {
+          "phraseId": "gps_rollover",
+          "localIndex": 8,
+          "globalIndex": 39,
+          "text": "begins.",
+          "startSample": 622353,
+          "endSample": 641864,
+          "startFrame": 390,
+          "endFrame": 402
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "id": "gps_old_cycle",
+      "text": "Old software read zero as the previous cycle.",
+      "visual": {
+        "action": "update",
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "helper": {
+          "primary": "WEEK 0000 = YEAR 1999",
+          "recipe": "interpretation",
+          "secondary": "WRONG CYCLE",
+          "title": "OLD SOFTWARE"
+        },
+        "status": "REPEATED WEEK VALUE",
+        "tone": "warning",
+        "triggerToken": null
+      },
+      "startSample": 660800,
+      "startFrame": 413,
+      "endSample": 809600,
+      "endFrame": 506,
+      "triggerFrame": 413,
+      "audio": {
+        "startSample": 660800,
+        "endSample": 793886,
+        "sampleCount": 133086,
+        "startFrame": 413,
+        "endFrame": 497,
+        "sha256": "6c3d35533533ed82e1276e4315a7d5e17cc47488954f4261f1deb48dc82460b1"
+      },
+      "pause": {
+        "requestedMs": 320,
+        "startSample": 793886,
+        "endSample": 809246,
+        "sampleCount": 15360,
+        "startFrame": 497,
+        "endFrame": 506
+      },
+      "alignmentPaddingSamples": 354,
+      "words": [
+        {
+          "phraseId": "gps_old_cycle",
+          "localIndex": 0,
+          "globalIndex": 40,
+          "text": "Old",
+          "startSample": 660800,
+          "endSample": 671591,
+          "startFrame": 413,
+          "endFrame": 420
+        },
+        {
+          "phraseId": "gps_old_cycle",
+          "localIndex": 1,
+          "globalIndex": 41,
+          "text": "software",
+          "startSample": 671591,
+          "endSample": 700365,
+          "startFrame": 420,
+          "endFrame": 437
+        },
+        {
+          "phraseId": "gps_old_cycle",
+          "localIndex": 2,
+          "globalIndex": 42,
+          "text": "read",
+          "startSample": 700365,
+          "endSample": 714753,
+          "startFrame": 437,
+          "endFrame": 446
+        },
+        {
+          "phraseId": "gps_old_cycle",
+          "localIndex": 3,
+          "globalIndex": 43,
+          "text": "zero",
+          "startSample": 714753,
+          "endSample": 729141,
+          "startFrame": 446,
+          "endFrame": 456
+        },
+        {
+          "phraseId": "gps_old_cycle",
+          "localIndex": 4,
+          "globalIndex": 44,
+          "text": "as",
+          "startSample": 729141,
+          "endSample": 736335,
+          "startFrame": 456,
+          "endFrame": 461
+        },
+        {
+          "phraseId": "gps_old_cycle",
+          "localIndex": 5,
+          "globalIndex": 45,
+          "text": "the",
+          "startSample": 736335,
+          "endSample": 747126,
+          "startFrame": 461,
+          "endFrame": 468
+        },
+        {
+          "phraseId": "gps_old_cycle",
+          "localIndex": 6,
+          "globalIndex": 46,
+          "text": "previous",
+          "startSample": 747126,
+          "endSample": 775901,
+          "startFrame": 468,
+          "endFrame": 485
+        },
+        {
+          "phraseId": "gps_old_cycle",
+          "localIndex": 7,
+          "globalIndex": 47,
+          "text": "cycle.",
+          "startSample": 775901,
+          "endSample": 793886,
+          "startFrame": 485,
+          "endFrame": 497
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "id": "gps_date_backward",
+      "text": "Their displayed date jumped backward.",
+      "visual": {
+        "action": "hold",
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "helper": {
+          "primary": "1999",
+          "recipe": "interpretation",
+          "secondary": "REAL DATE: 2019",
+          "title": "RECEIVER SHOWS"
+        },
+        "status": "WRONG DATE",
+        "tone": "warning",
+        "triggerToken": null
+      },
+      "startSample": 809600,
+      "startFrame": 506,
+      "endSample": 913600,
+      "endFrame": 571,
+      "triggerFrame": 506,
+      "audio": {
+        "startSample": 809600,
+        "endSample": 898982,
+        "sampleCount": 89382,
+        "startFrame": 506,
+        "endFrame": 562,
+        "sha256": "7774df4d4691e8d454fb1c3fa8bc812a0b378c370d45e8054200c2d93bba1314"
+      },
+      "pause": {
+        "requestedMs": 300,
+        "startSample": 898982,
+        "endSample": 913382,
+        "sampleCount": 14400,
+        "startFrame": 562,
+        "endFrame": 571
+      },
+      "alignmentPaddingSamples": 218,
+      "words": [
+        {
+          "phraseId": "gps_date_backward",
+          "localIndex": 0,
+          "globalIndex": 48,
+          "text": "Their",
+          "startSample": 809600,
+          "endSample": 823566,
+          "startFrame": 506,
+          "endFrame": 514
+        },
+        {
+          "phraseId": "gps_date_backward",
+          "localIndex": 1,
+          "globalIndex": 49,
+          "text": "displayed",
+          "startSample": 823566,
+          "endSample": 848704,
+          "startFrame": 514,
+          "endFrame": 530
+        },
+        {
+          "phraseId": "gps_date_backward",
+          "localIndex": 2,
+          "globalIndex": 50,
+          "text": "date",
+          "startSample": 848704,
+          "endSample": 859877,
+          "startFrame": 530,
+          "endFrame": 537
+        },
+        {
+          "phraseId": "gps_date_backward",
+          "localIndex": 3,
+          "globalIndex": 51,
+          "text": "jumped",
+          "startSample": 859877,
+          "endSample": 876636,
+          "startFrame": 537,
+          "endFrame": 548
+        },
+        {
+          "phraseId": "gps_date_backward",
+          "localIndex": 4,
+          "globalIndex": 52,
+          "text": "backward.",
+          "startSample": 876636,
+          "endSample": 898982,
+          "startFrame": 548,
+          "endFrame": 562
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "id": "gps_time_continues",
+      "text": "Real time kept moving forward.",
+      "visual": {
+        "action": "hold",
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "helper": {
+          "primary": "YEAR 2019",
+          "recipe": "time_continues",
+          "secondary": "KEPT MOVING FORWARD",
+          "title": "REAL TIME"
+        },
+        "status": "WEEK VALUE STAYS 0000",
+        "tone": "warning",
+        "triggerToken": null
+      },
+      "startSample": 913600,
+      "startFrame": 571,
+      "endSample": 1017600,
+      "endFrame": 636,
+      "triggerFrame": 571,
+      "audio": {
+        "startSample": 913600,
+        "endSample": 1000134,
+        "sampleCount": 86534,
+        "startFrame": 571,
+        "endFrame": 626,
+        "sha256": "b51abbbb2bfa36845cc0c9c22a1565af3935ac48068938ecd34055d98fb199e8"
+      },
+      "pause": {
+        "requestedMs": 340,
+        "startSample": 1000134,
+        "endSample": 1016454,
+        "sampleCount": 16320,
+        "startFrame": 626,
+        "endFrame": 636
+      },
+      "alignmentPaddingSamples": 1146,
+      "words": [
+        {
+          "phraseId": "gps_time_continues",
+          "localIndex": 0,
+          "globalIndex": 53,
+          "text": "Real",
+          "startSample": 913600,
+          "endSample": 927445,
+          "startFrame": 571,
+          "endFrame": 580
+        },
+        {
+          "phraseId": "gps_time_continues",
+          "localIndex": 1,
+          "globalIndex": 54,
+          "text": "time",
+          "startSample": 927445,
+          "endSample": 941291,
+          "startFrame": 580,
+          "endFrame": 589
+        },
+        {
+          "phraseId": "gps_time_continues",
+          "localIndex": 2,
+          "globalIndex": 55,
+          "text": "kept",
+          "startSample": 941291,
+          "endSample": 955136,
+          "startFrame": 589,
+          "endFrame": 598
+        },
+        {
+          "phraseId": "gps_time_continues",
+          "localIndex": 3,
+          "globalIndex": 56,
+          "text": "moving",
+          "startSample": 955136,
+          "endSample": 975904,
+          "startFrame": 598,
+          "endFrame": 611
+        },
+        {
+          "phraseId": "gps_time_continues",
+          "localIndex": 4,
+          "globalIndex": 57,
+          "text": "forward.",
+          "startSample": 975904,
+          "endSample": 1000134,
+          "startFrame": 611,
+          "endFrame": 626
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "id": "gps_patch",
+      "text": "An update selected the correct GPS cycle.",
+      "visual": {
+        "action": "resolve",
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "helper": {
+          "primary": "WEEK 0000 = YEAR 2019",
+          "recipe": "patch",
+          "secondary": "CORRECT CYCLE SELECTED",
+          "title": "SOFTWARE UPDATE"
+        },
+        "status": "CORRECT CYCLE",
+        "tone": "success",
+        "triggerToken": null
+      },
+      "startSample": 1017600,
+      "startFrame": 636,
+      "endSample": 1158400,
+      "endFrame": 724,
+      "triggerFrame": 636,
+      "audio": {
+        "startSample": 1017600,
+        "endSample": 1139888,
+        "sampleCount": 122288,
+        "startFrame": 636,
+        "endFrame": 713,
+        "sha256": "8dce2c5f09ca72820f0ddb7160368a439439f7bbfe965b7ef83e57f292689317"
+      },
+      "pause": {
+        "requestedMs": 360,
+        "startSample": 1139888,
+        "endSample": 1157168,
+        "sampleCount": 17280,
+        "startFrame": 713,
+        "endFrame": 724
+      },
+      "alignmentPaddingSamples": 1232,
+      "words": [
+        {
+          "phraseId": "gps_patch",
+          "localIndex": 0,
+          "globalIndex": 58,
+          "text": "An",
+          "startSample": 1017600,
+          "endSample": 1024794,
+          "startFrame": 636,
+          "endFrame": 641
+        },
+        {
+          "phraseId": "gps_patch",
+          "localIndex": 1,
+          "globalIndex": 59,
+          "text": "update",
+          "startSample": 1024794,
+          "endSample": 1046374,
+          "startFrame": 641,
+          "endFrame": 654
+        },
+        {
+          "phraseId": "gps_patch",
+          "localIndex": 2,
+          "globalIndex": 60,
+          "text": "selected",
+          "startSample": 1046374,
+          "endSample": 1075147,
+          "startFrame": 654,
+          "endFrame": 671
+        },
+        {
+          "phraseId": "gps_patch",
+          "localIndex": 3,
+          "globalIndex": 61,
+          "text": "the",
+          "startSample": 1075147,
+          "endSample": 1085937,
+          "startFrame": 671,
+          "endFrame": 679
+        },
+        {
+          "phraseId": "gps_patch",
+          "localIndex": 4,
+          "globalIndex": 62,
+          "text": "correct",
+          "startSample": 1085937,
+          "endSample": 1111114,
+          "startFrame": 679,
+          "endFrame": 694
+        },
+        {
+          "phraseId": "gps_patch",
+          "localIndex": 5,
+          "globalIndex": 63,
+          "text": "GPS",
+          "startSample": 1111114,
+          "endSample": 1121904,
+          "startFrame": 694,
+          "endFrame": 701
+        },
+        {
+          "phraseId": "gps_patch",
+          "localIndex": 6,
+          "globalIndex": 64,
+          "text": "cycle.",
+          "startSample": 1121904,
+          "endSample": 1139888,
+          "startFrame": 701,
+          "endFrame": 713
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "id": "gps_correct_date",
+      "text": "Now the receiver shows the correct date.",
+      "visual": {
+        "action": "hold",
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "helper": {
+          "primary": "2019",
+          "recipe": "patch",
+          "secondary": "FROM THE SAME WEEK VALUE",
+          "title": "RECEIVER NOW SHOWS"
+        },
+        "status": "CORRECT DATE",
+        "tone": "success",
+        "triggerToken": null
+      },
+      "startSample": 1158400,
+      "startFrame": 724,
+      "endSample": 1272000,
+      "endFrame": 795,
+      "triggerFrame": 724,
+      "audio": {
+        "startSample": 1158400,
+        "endSample": 1256058,
+        "sampleCount": 97658,
+        "startFrame": 724,
+        "endFrame": 786,
+        "sha256": "0ad63a46adc4c362d60c2c0d81610215365c674adb8ae4905aa3955def97e2b0"
+      },
+      "pause": {
+        "requestedMs": 320,
+        "startSample": 1256058,
+        "endSample": 1271418,
+        "sampleCount": 15360,
+        "startFrame": 786,
+        "endFrame": 795
+      },
+      "alignmentPaddingSamples": 582,
+      "words": [
+        {
+          "phraseId": "gps_correct_date",
+          "localIndex": 0,
+          "globalIndex": 65,
+          "text": "Now",
+          "startSample": 1158400,
+          "endSample": 1167278,
+          "startFrame": 724,
+          "endFrame": 730
+        },
+        {
+          "phraseId": "gps_correct_date",
+          "localIndex": 1,
+          "globalIndex": 66,
+          "text": "the",
+          "startSample": 1167278,
+          "endSample": 1176156,
+          "startFrame": 730,
+          "endFrame": 736
+        },
+        {
+          "phraseId": "gps_correct_date",
+          "localIndex": 2,
+          "globalIndex": 67,
+          "text": "receiver",
+          "startSample": 1176156,
+          "endSample": 1199830,
+          "startFrame": 736,
+          "endFrame": 750
+        },
+        {
+          "phraseId": "gps_correct_date",
+          "localIndex": 3,
+          "globalIndex": 68,
+          "text": "shows",
+          "startSample": 1199830,
+          "endSample": 1214627,
+          "startFrame": 750,
+          "endFrame": 759
+        },
+        {
+          "phraseId": "gps_correct_date",
+          "localIndex": 4,
+          "globalIndex": 69,
+          "text": "the",
+          "startSample": 1214627,
+          "endSample": 1223505,
+          "startFrame": 759,
+          "endFrame": 765
+        },
+        {
+          "phraseId": "gps_correct_date",
+          "localIndex": 5,
+          "globalIndex": 70,
+          "text": "correct",
+          "startSample": 1223505,
+          "endSample": 1244220,
+          "startFrame": 765,
+          "endFrame": 778
+        },
+        {
+          "phraseId": "gps_correct_date",
+          "localIndex": 6,
+          "globalIndex": 71,
+          "text": "date.",
+          "startSample": 1244220,
+          "endSample": 1256058,
+          "startFrame": 778,
+          "endFrame": 786
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "id": "gps_payoff",
+      "text": "The number repeated. Time did not.",
+      "visual": {
+        "action": "resolve",
+        "displayFrom": "0000",
+        "displayTo": "0000",
+        "helper": {
+          "primary": "TIME",
+          "recipe": "time_continues",
+          "secondary": "KEPT MOVING",
+          "title": "THE NUMBER REPEATED"
+        },
+        "status": "SAME NUMBER",
+        "tone": "success",
+        "triggerToken": null
+      },
+      "startSample": 1272000,
+      "startFrame": 795,
+      "endSample": 1438400,
+      "endFrame": 899,
+      "triggerFrame": 795,
+      "audio": {
+        "startSample": 1272000,
+        "endSample": 1365436,
+        "sampleCount": 93436,
+        "startFrame": 795,
+        "endFrame": 854,
+        "sha256": "eaf5a0e0b882f26958840b00399f52fa2290e82d144d76b1dac30e53ef254401"
+      },
+      "pause": {
+        "requestedMs": 500,
+        "startSample": 1365436,
+        "endSample": 1389436,
+        "sampleCount": 24000,
+        "startFrame": 854,
+        "endFrame": 869
+      },
+      "alignmentPaddingSamples": 964,
+      "words": [
+        {
+          "phraseId": "gps_payoff",
+          "localIndex": 0,
+          "globalIndex": 72,
+          "text": "The",
+          "startSample": 1272000,
+          "endSample": 1282382,
+          "startFrame": 795,
+          "endFrame": 801
+        },
+        {
+          "phraseId": "gps_payoff",
+          "localIndex": 1,
+          "globalIndex": 73,
+          "text": "number",
+          "startSample": 1282382,
+          "endSample": 1303145,
+          "startFrame": 801,
+          "endFrame": 814
+        },
+        {
+          "phraseId": "gps_payoff",
+          "localIndex": 2,
+          "globalIndex": 74,
+          "text": "repeated.",
+          "startSample": 1303145,
+          "endSample": 1330829,
+          "startFrame": 814,
+          "endFrame": 831
+        },
+        {
+          "phraseId": "gps_payoff",
+          "localIndex": 3,
+          "globalIndex": 75,
+          "text": "Time",
+          "startSample": 1330829,
+          "endSample": 1344671,
+          "startFrame": 831,
+          "endFrame": 840
+        },
+        {
+          "phraseId": "gps_payoff",
+          "localIndex": 4,
+          "globalIndex": 76,
+          "text": "did",
+          "startSample": 1344671,
+          "endSample": 1355053,
+          "startFrame": 840,
+          "endFrame": 847
+        },
+        {
+          "phraseId": "gps_payoff",
+          "localIndex": 5,
+          "globalIndex": 77,
+          "text": "not.",
+          "startSample": 1355053,
+          "endSample": 1365436,
+          "startFrame": 847,
+          "endFrame": 854
+        }
+      ],
+      "finalHold": {
+        "startSample": 1390400,
+        "endSample": 1438400,
+        "sampleCount": 48000,
+        "startFrame": 869,
+        "endFrame": 899,
+        "frameCount": 30
+      }
+    }
+  ],
+  "words": [
+    {
+      "phraseId": "gps_week_not_date",
+      "localIndex": 0,
+      "globalIndex": 0,
+      "text": "GPS",
+      "startSample": 0,
+      "endSample": 11241,
+      "startFrame": 0,
+      "endFrame": 7
+    },
+    {
+      "phraseId": "gps_week_not_date",
+      "localIndex": 1,
+      "globalIndex": 1,
+      "text": "does",
+      "startSample": 11241,
+      "endSample": 26230,
+      "startFrame": 7,
+      "endFrame": 16
+    },
+    {
+      "phraseId": "gps_week_not_date",
+      "localIndex": 2,
+      "globalIndex": 2,
+      "text": "not",
+      "startSample": 26230,
+      "endSample": 37472,
+      "startFrame": 16,
+      "endFrame": 23
+    },
+    {
+      "phraseId": "gps_week_not_date",
+      "localIndex": 3,
+      "globalIndex": 3,
+      "text": "send",
+      "startSample": 37472,
+      "endSample": 52460,
+      "startFrame": 23,
+      "endFrame": 33
+    },
+    {
+      "phraseId": "gps_week_not_date",
+      "localIndex": 4,
+      "globalIndex": 4,
+      "text": "a",
+      "startSample": 52460,
+      "endSample": 56208,
+      "startFrame": 33,
+      "endFrame": 36
+    },
+    {
+      "phraseId": "gps_week_not_date",
+      "localIndex": 5,
+      "globalIndex": 5,
+      "text": "full",
+      "startSample": 56208,
+      "endSample": 71197,
+      "startFrame": 36,
+      "endFrame": 45
+    },
+    {
+      "phraseId": "gps_week_not_date",
+      "localIndex": 6,
+      "globalIndex": 6,
+      "text": "calendar",
+      "startSample": 71197,
+      "endSample": 101173,
+      "startFrame": 45,
+      "endFrame": 63
+    },
+    {
+      "phraseId": "gps_week_not_date",
+      "localIndex": 7,
+      "globalIndex": 7,
+      "text": "date.",
+      "startSample": 101173,
+      "endSample": 116162,
+      "startFrame": 63,
+      "endFrame": 73
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 0,
+      "globalIndex": 8,
+      "text": "Older",
+      "startSample": 129600,
+      "endSample": 145518,
+      "startFrame": 81,
+      "endFrame": 90
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 1,
+      "globalIndex": 9,
+      "text": "signals",
+      "startSample": 145518,
+      "endSample": 167805,
+      "startFrame": 90,
+      "endFrame": 104
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 2,
+      "globalIndex": 10,
+      "text": "stored",
+      "startSample": 167805,
+      "endSample": 186907,
+      "startFrame": 104,
+      "endFrame": 116
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 3,
+      "globalIndex": 11,
+      "text": "that",
+      "startSample": 186907,
+      "endSample": 199642,
+      "startFrame": 116,
+      "endFrame": 124
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 4,
+      "globalIndex": 12,
+      "text": "week",
+      "startSample": 199642,
+      "endSample": 212378,
+      "startFrame": 124,
+      "endFrame": 132
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 5,
+      "globalIndex": 13,
+      "text": "number",
+      "startSample": 212378,
+      "endSample": 231480,
+      "startFrame": 132,
+      "endFrame": 143
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 6,
+      "globalIndex": 14,
+      "text": "in",
+      "startSample": 231480,
+      "endSample": 237848,
+      "startFrame": 143,
+      "endFrame": 148
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 7,
+      "globalIndex": 15,
+      "text": "ten",
+      "startSample": 237848,
+      "endSample": 247400,
+      "startFrame": 148,
+      "endFrame": 154
+    },
+    {
+      "phraseId": "gps_ten_bits",
+      "localIndex": 8,
+      "globalIndex": 16,
+      "text": "bits.",
+      "startSample": 247400,
+      "endSample": 260136,
+      "startFrame": 154,
+      "endFrame": 163
+    },
+    {
+      "phraseId": "gps_value_range",
+      "localIndex": 0,
+      "globalIndex": 17,
+      "text": "The",
+      "startSample": 275200,
+      "endSample": 294974,
+      "startFrame": 172,
+      "endFrame": 184
+    },
+    {
+      "phraseId": "gps_value_range",
+      "localIndex": 1,
+      "globalIndex": 18,
+      "text": "range",
+      "startSample": 294974,
+      "endSample": 327930,
+      "startFrame": 184,
+      "endFrame": 205
+    },
+    {
+      "phraseId": "gps_value_range",
+      "localIndex": 2,
+      "globalIndex": 19,
+      "text": "ends",
+      "startSample": 327930,
+      "endSample": 354295,
+      "startFrame": 205,
+      "endFrame": 221
+    },
+    {
+      "phraseId": "gps_value_range",
+      "localIndex": 3,
+      "globalIndex": 20,
+      "text": "at",
+      "startSample": 354295,
+      "endSample": 367478,
+      "startFrame": 221,
+      "endFrame": 230
+    },
+    {
+      "phraseId": "gps_value_range",
+      "localIndex": 4,
+      "globalIndex": 21,
+      "text": "1,023.",
+      "startSample": 367478,
+      "endSample": 393844,
+      "startFrame": 230,
+      "endFrame": 247
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 0,
+      "globalIndex": 22,
+      "text": "At",
+      "startSample": 409600,
+      "endSample": 415854,
+      "startFrame": 256,
+      "endFrame": 260
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 1,
+      "globalIndex": 23,
+      "text": "the",
+      "startSample": 415854,
+      "endSample": 425234,
+      "startFrame": 260,
+      "endFrame": 266
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 2,
+      "globalIndex": 24,
+      "text": "limit,",
+      "startSample": 425234,
+      "endSample": 440868,
+      "startFrame": 266,
+      "endFrame": 275
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 3,
+      "globalIndex": 25,
+      "text": "there",
+      "startSample": 440868,
+      "endSample": 456501,
+      "startFrame": 275,
+      "endFrame": 285
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 4,
+      "globalIndex": 26,
+      "text": "is",
+      "startSample": 456501,
+      "endSample": 462756,
+      "startFrame": 285,
+      "endFrame": 289
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 5,
+      "globalIndex": 27,
+      "text": "no",
+      "startSample": 462756,
+      "endSample": 469010,
+      "startFrame": 289,
+      "endFrame": 294
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 6,
+      "globalIndex": 28,
+      "text": "new",
+      "startSample": 469010,
+      "endSample": 478390,
+      "startFrame": 294,
+      "endFrame": 300
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 7,
+      "globalIndex": 29,
+      "text": "number",
+      "startSample": 478390,
+      "endSample": 497150,
+      "startFrame": 300,
+      "endFrame": 311
+    },
+    {
+      "phraseId": "gps_at_limit",
+      "localIndex": 8,
+      "globalIndex": 30,
+      "text": "left.",
+      "startSample": 497150,
+      "endSample": 509658,
+      "startFrame": 311,
+      "endFrame": 319
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 0,
+      "globalIndex": 31,
+      "text": "Zero",
+      "startSample": 524800,
+      "endSample": 537807,
+      "startFrame": 328,
+      "endFrame": 336
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 1,
+      "globalIndex": 32,
+      "text": "is",
+      "startSample": 537807,
+      "endSample": 544311,
+      "startFrame": 336,
+      "endFrame": 340
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 2,
+      "globalIndex": 33,
+      "text": "sent",
+      "startSample": 544311,
+      "endSample": 557318,
+      "startFrame": 340,
+      "endFrame": 349
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 3,
+      "globalIndex": 34,
+      "text": "again",
+      "startSample": 557318,
+      "endSample": 573576,
+      "startFrame": 349,
+      "endFrame": 359
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 4,
+      "globalIndex": 35,
+      "text": "when",
+      "startSample": 573576,
+      "endSample": 586584,
+      "startFrame": 359,
+      "endFrame": 367
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 5,
+      "globalIndex": 36,
+      "text": "the",
+      "startSample": 586584,
+      "endSample": 596339,
+      "startFrame": 367,
+      "endFrame": 373
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 6,
+      "globalIndex": 37,
+      "text": "next",
+      "startSample": 596339,
+      "endSample": 609346,
+      "startFrame": 373,
+      "endFrame": 381
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 7,
+      "globalIndex": 38,
+      "text": "week",
+      "startSample": 609346,
+      "endSample": 622353,
+      "startFrame": 381,
+      "endFrame": 390
+    },
+    {
+      "phraseId": "gps_rollover",
+      "localIndex": 8,
+      "globalIndex": 39,
+      "text": "begins.",
+      "startSample": 622353,
+      "endSample": 641864,
+      "startFrame": 390,
+      "endFrame": 402
+    },
+    {
+      "phraseId": "gps_old_cycle",
+      "localIndex": 0,
+      "globalIndex": 40,
+      "text": "Old",
+      "startSample": 660800,
+      "endSample": 671591,
+      "startFrame": 413,
+      "endFrame": 420
+    },
+    {
+      "phraseId": "gps_old_cycle",
+      "localIndex": 1,
+      "globalIndex": 41,
+      "text": "software",
+      "startSample": 671591,
+      "endSample": 700365,
+      "startFrame": 420,
+      "endFrame": 437
+    },
+    {
+      "phraseId": "gps_old_cycle",
+      "localIndex": 2,
+      "globalIndex": 42,
+      "text": "read",
+      "startSample": 700365,
+      "endSample": 714753,
+      "startFrame": 437,
+      "endFrame": 446
+    },
+    {
+      "phraseId": "gps_old_cycle",
+      "localIndex": 3,
+      "globalIndex": 43,
+      "text": "zero",
+      "startSample": 714753,
+      "endSample": 729141,
+      "startFrame": 446,
+      "endFrame": 456
+    },
+    {
+      "phraseId": "gps_old_cycle",
+      "localIndex": 4,
+      "globalIndex": 44,
+      "text": "as",
+      "startSample": 729141,
+      "endSample": 736335,
+      "startFrame": 456,
+      "endFrame": 461
+    },
+    {
+      "phraseId": "gps_old_cycle",
+      "localIndex": 5,
+      "globalIndex": 45,
+      "text": "the",
+      "startSample": 736335,
+      "endSample": 747126,
+      "startFrame": 461,
+      "endFrame": 468
+    },
+    {
+      "phraseId": "gps_old_cycle",
+      "localIndex": 6,
+      "globalIndex": 46,
+      "text": "previous",
+      "startSample": 747126,
+      "endSample": 775901,
+      "startFrame": 468,
+      "endFrame": 485
+    },
+    {
+      "phraseId": "gps_old_cycle",
+      "localIndex": 7,
+      "globalIndex": 47,
+      "text": "cycle.",
+      "startSample": 775901,
+      "endSample": 793886,
+      "startFrame": 485,
+      "endFrame": 497
+    },
+    {
+      "phraseId": "gps_date_backward",
+      "localIndex": 0,
+      "globalIndex": 48,
+      "text": "Their",
+      "startSample": 809600,
+      "endSample": 823566,
+      "startFrame": 506,
+      "endFrame": 514
+    },
+    {
+      "phraseId": "gps_date_backward",
+      "localIndex": 1,
+      "globalIndex": 49,
+      "text": "displayed",
+      "startSample": 823566,
+      "endSample": 848704,
+      "startFrame": 514,
+      "endFrame": 530
+    },
+    {
+      "phraseId": "gps_date_backward",
+      "localIndex": 2,
+      "globalIndex": 50,
+      "text": "date",
+      "startSample": 848704,
+      "endSample": 859877,
+      "startFrame": 530,
+      "endFrame": 537
+    },
+    {
+      "phraseId": "gps_date_backward",
+      "localIndex": 3,
+      "globalIndex": 51,
+      "text": "jumped",
+      "startSample": 859877,
+      "endSample": 876636,
+      "startFrame": 537,
+      "endFrame": 548
+    },
+    {
+      "phraseId": "gps_date_backward",
+      "localIndex": 4,
+      "globalIndex": 52,
+      "text": "backward.",
+      "startSample": 876636,
+      "endSample": 898982,
+      "startFrame": 548,
+      "endFrame": 562
+    },
+    {
+      "phraseId": "gps_time_continues",
+      "localIndex": 0,
+      "globalIndex": 53,
+      "text": "Real",
+      "startSample": 913600,
+      "endSample": 927445,
+      "startFrame": 571,
+      "endFrame": 580
+    },
+    {
+      "phraseId": "gps_time_continues",
+      "localIndex": 1,
+      "globalIndex": 54,
+      "text": "time",
+      "startSample": 927445,
+      "endSample": 941291,
+      "startFrame": 580,
+      "endFrame": 589
+    },
+    {
+      "phraseId": "gps_time_continues",
+      "localIndex": 2,
+      "globalIndex": 55,
+      "text": "kept",
+      "startSample": 941291,
+      "endSample": 955136,
+      "startFrame": 589,
+      "endFrame": 598
+    },
+    {
+      "phraseId": "gps_time_continues",
+      "localIndex": 3,
+      "globalIndex": 56,
+      "text": "moving",
+      "startSample": 955136,
+      "endSample": 975904,
+      "startFrame": 598,
+      "endFrame": 611
+    },
+    {
+      "phraseId": "gps_time_continues",
+      "localIndex": 4,
+      "globalIndex": 57,
+      "text": "forward.",
+      "startSample": 975904,
+      "endSample": 1000134,
+      "startFrame": 611,
+      "endFrame": 626
+    },
+    {
+      "phraseId": "gps_patch",
+      "localIndex": 0,
+      "globalIndex": 58,
+      "text": "An",
+      "startSample": 1017600,
+      "endSample": 1024794,
+      "startFrame": 636,
+      "endFrame": 641
+    },
+    {
+      "phraseId": "gps_patch",
+      "localIndex": 1,
+      "globalIndex": 59,
+      "text": "update",
+      "startSample": 1024794,
+      "endSample": 1046374,
+      "startFrame": 641,
+      "endFrame": 654
+    },
+    {
+      "phraseId": "gps_patch",
+      "localIndex": 2,
+      "globalIndex": 60,
+      "text": "selected",
+      "startSample": 1046374,
+      "endSample": 1075147,
+      "startFrame": 654,
+      "endFrame": 671
+    },
+    {
+      "phraseId": "gps_patch",
+      "localIndex": 3,
+      "globalIndex": 61,
+      "text": "the",
+      "startSample": 1075147,
+      "endSample": 1085937,
+      "startFrame": 671,
+      "endFrame": 679
+    },
+    {
+      "phraseId": "gps_patch",
+      "localIndex": 4,
+      "globalIndex": 62,
+      "text": "correct",
+      "startSample": 1085937,
+      "endSample": 1111114,
+      "startFrame": 679,
+      "endFrame": 694
+    },
+    {
+      "phraseId": "gps_patch",
+      "localIndex": 5,
+      "globalIndex": 63,
+      "text": "GPS",
+      "startSample": 1111114,
+      "endSample": 1121904,
+      "startFrame": 694,
+      "endFrame": 701
+    },
+    {
+      "phraseId": "gps_patch",
+      "localIndex": 6,
+      "globalIndex": 64,
+      "text": "cycle.",
+      "startSample": 1121904,
+      "endSample": 1139888,
+      "startFrame": 701,
+      "endFrame": 713
+    },
+    {
+      "phraseId": "gps_correct_date",
+      "localIndex": 0,
+      "globalIndex": 65,
+      "text": "Now",
+      "startSample": 1158400,
+      "endSample": 1167278,
+      "startFrame": 724,
+      "endFrame": 730
+    },
+    {
+      "phraseId": "gps_correct_date",
+      "localIndex": 1,
+      "globalIndex": 66,
+      "text": "the",
+      "startSample": 1167278,
+      "endSample": 1176156,
+      "startFrame": 730,
+      "endFrame": 736
+    },
+    {
+      "phraseId": "gps_correct_date",
+      "localIndex": 2,
+      "globalIndex": 67,
+      "text": "receiver",
+      "startSample": 1176156,
+      "endSample": 1199830,
+      "startFrame": 736,
+      "endFrame": 750
+    },
+    {
+      "phraseId": "gps_correct_date",
+      "localIndex": 3,
+      "globalIndex": 68,
+      "text": "shows",
+      "startSample": 1199830,
+      "endSample": 1214627,
+      "startFrame": 750,
+      "endFrame": 759
+    },
+    {
+      "phraseId": "gps_correct_date",
+      "localIndex": 4,
+      "globalIndex": 69,
+      "text": "the",
+      "startSample": 1214627,
+      "endSample": 1223505,
+      "startFrame": 759,
+      "endFrame": 765
+    },
+    {
+      "phraseId": "gps_correct_date",
+      "localIndex": 5,
+      "globalIndex": 70,
+      "text": "correct",
+      "startSample": 1223505,
+      "endSample": 1244220,
+      "startFrame": 765,
+      "endFrame": 778
+    },
+    {
+      "phraseId": "gps_correct_date",
+      "localIndex": 6,
+      "globalIndex": 71,
+      "text": "date.",
+      "startSample": 1244220,
+      "endSample": 1256058,
+      "startFrame": 778,
+      "endFrame": 786
+    },
+    {
+      "phraseId": "gps_payoff",
+      "localIndex": 0,
+      "globalIndex": 72,
+      "text": "The",
+      "startSample": 1272000,
+      "endSample": 1282382,
+      "startFrame": 795,
+      "endFrame": 801
+    },
+    {
+      "phraseId": "gps_payoff",
+      "localIndex": 1,
+      "globalIndex": 73,
+      "text": "number",
+      "startSample": 1282382,
+      "endSample": 1303145,
+      "startFrame": 801,
+      "endFrame": 814
+    },
+    {
+      "phraseId": "gps_payoff",
+      "localIndex": 2,
+      "globalIndex": 74,
+      "text": "repeated.",
+      "startSample": 1303145,
+      "endSample": 1330829,
+      "startFrame": 814,
+      "endFrame": 831
+    },
+    {
+      "phraseId": "gps_payoff",
+      "localIndex": 3,
+      "globalIndex": 75,
+      "text": "Time",
+      "startSample": 1330829,
+      "endSample": 1344671,
+      "startFrame": 831,
+      "endFrame": 840
+    },
+    {
+      "phraseId": "gps_payoff",
+      "localIndex": 4,
+      "globalIndex": 76,
+      "text": "did",
+      "startSample": 1344671,
+      "endSample": 1355053,
+      "startFrame": 840,
+      "endFrame": 847
+    },
+    {
+      "phraseId": "gps_payoff",
+      "localIndex": 5,
+      "globalIndex": 77,
+      "text": "not.",
+      "startSample": 1355053,
+      "endSample": 1365436,
+      "startFrame": 847,
+      "endFrame": 854
+    }
+  ],
+  "frameClock": {
+    "fps": 30,
+    "sampleRate": 48000,
+    "samplesPerFrame": 1600,
+    "durationFrames": 899,
+    "durationSamples": 1438400,
+    "speechEndFrame": 854,
+    "speechEndSample": 1365436,
+    "finalHold": {
+      "startSample": 1390400,
+      "endSample": 1438400,
+      "sampleCount": 48000,
+      "startFrame": 869,
+      "endFrame": 899,
+      "frameCount": 30
+    }
+  },
+  "provenance": {
+    "profile": "mechanism_explainer_calibration_audio_v1",
+    "purpose": "quality_calibration_only",
+    "calibration": true,
+    "publishable": false,
+    "rightsStatus": "commercial_use_not_attested",
+    "commercialUseAttested": false,
+    "commercialUseAttestation": null,
+    "provider": "kokoro_local",
+    "providerExecution": "one_helper_spawn_per_phrase",
+    "providerProcessShell": false,
+    "modelId": "kokoro-v1.0-onnx-f32",
+    "runtimeVersion": "kokoro-onnx-0.5.0",
+    "voiceId": "af_heart",
+    "language": "en",
+    "speakingRate": 1.08,
+    "licenseReference": "Apache-2.0:hexgrad/Kokoro-82M-v1.0",
+    "normalization": {
+      "tool": "ffmpeg",
+      "sampleRate": 48000,
+      "channels": 1,
+      "codec": "pcm_s16le"
+    },
+    "inputSha256": "a1664e5bd3b7817e67dbafde36ced4eaae8941874d304a93e0ce64a84033c9ee",
+    "audioSha256": "23463084c240c1a01268a56ce8cbc3b31241d5aa419e14aa9debfc2d9cf90bd2",
+    "synthesisReports": [
+      {
+        "bytes": 116206,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 58081
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 130580,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 65268
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 118688,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 59322
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 100102,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 50029
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 117108,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 58532
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 133130,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 66543
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 89426,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 44691
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 86578,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 43267
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 122332,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 61144
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 97702,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 48829
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      },
+      {
+        "bytes": 93480,
+        "pauseRanges": [
+          {
+            "sampleCount": 0,
+            "startSample": 46718
+          }
+        ],
+        "sampleRate": 24000,
+        "segmentCount": 1,
+        "status": "complete",
+        "totalPauseMs": 0,
+        "totalPauseSamples": 0
+      }
+    ]
+  },
+  "calibration": true,
+  "publishable": false,
+  "commercialUseAttested": false,
+  "releaseBlockers": [
+    "CALIBRATION_ONLY",
+    "COMMERCIAL_USE_ATTESTATION_REQUIRED"
+  ],
+  "normalizedAudioPersisted": false
+}

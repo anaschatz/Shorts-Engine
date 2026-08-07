@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism_explainer_calibration_batch_v1",
+  "status": "human_review_pending",
+  "featureGated": true,
+  "calibration": true,
+  "publishable": false,
+  "generatedAt": "2026-07-30T15:47:19.621Z",
+  "storyId": "odometer",
+  "storySpecId": "odometer_rollover_mechanism_v1",
+  "sources": {
+    "storySpec": {
+      "path": "eval/narrated/dark-curiosity/calibration/odometer-rollover-mechanism-v1.json",
+      "fileHash": "e739545bbab1d7d2d6cbcf14910997a79294e658fd6bdc7aea274aeb59dc7912"
+    },
+    "renderer": {
+      "path": "renderer/hyperframes/mechanism-explainer-v1.mjs",
+      "fileHash": "2ee65dbea4702f5a7e39ad272ce930e6c9c4c984e89282041f4e0f9e6dccb93c",
+      "profileId": "mechanism-explainer-v1",
+      "compositionHash": "81f59e169e250cf78b39372c647612c0deb23fcf20348e1008b7a9b3199f1821",
+      "storySpecHash": "cb7dfd171523995236ec80c9736cbfcdaa199e7f4ab857199adcea40980f57bf"
+    },
+    "audioHelper": {
+      "path": "tools/lib/mechanism-explainer-calibration-audio.mjs",
+      "fileHash": "c4119e6fe0cbc16399796196f611f63b0ae916078744cc9474a65d7618b81112"
+    }
+  },
+  "timeline": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationFrames": 537,
+    "durationSamples": 859200,
+    "samplesPerFrame": 1600,
+    "finalHoldFrames": 30
+  },
+  "narration": {
+    "audioSha256": "b4f0fbe94898747a0ba25d939da64a3e14d24f9c5a657e216c5dd19ce6f6196a",
+    "provider": "kokoro_local",
+    "purpose": "quality_calibration_only",
+    "commercialUseAttested": false,
+    "productionRightsAsserted": false,
+    "publishable": false
+  },
+  "captions": {
+    "manifestHash": "85126722daef7de038339c1835ef1649497325357ca19018a6a62d71a4ddff67",
+    "cueCount": 7,
+    "wordCount": 49,
+    "themeId": "human_readable_purple_v1",
+    "timingMode": "frame_boundary_floor_v1",
+    "burnedIn": true,
+    "sidecarVtt": true
+  },
+  "assets": {
+    "localOnly": true,
+    "remoteRequestCount": 0,
+    "browserRequests": [
+      "file:///var/folders/cj/zy13l1pd5wd72rs0tgvkcl9r0000gn/T/mechanism-explainer-odometer-calibration-v1-HwNFCK/composition.html"
+    ],
+    "storyProvidedGeometry": false,
+    "storyProvidedExecutableContent": false
+  },
+  "artifacts": {
+    "video": {
+      "path": "showcase/assets/mechanism-explainer-odometer-calibration-v1.mp4",
+      "sha256": "25422c82386e86388066d7c767b8b4f54de4cc5ed45a15d42293bab4def7bfc4",
+      "bytes": 968275
+    },
+    "vtt": {
+      "path": "showcase/assets/mechanism-explainer-odometer-calibration-v1.vtt",
+      "sha256": "a417d8638a488437641691eefd5f16d425e87c923361fec29c5c422cc4b3d2a2",
+      "bytes": 497
+    },
+    "contactSheet": {
+      "path": "showcase/assets/mechanism-explainer-odometer-calibration-v1-contact-sheet.png",
+      "sha256": "68d09ce3f1491eb8397ca903c17604d136ca649a6718364ab531d509f564541c",
+      "bytes": 172524
+    },
+    "ass": {
+      "path": "showcase/evidence/mechanism-explainer-odometer-calibration-v1/caption-preview.ass",
+      "sha256": "3686139e67db07c790741717697cc740ea9d7129b4da1daee501aed94c860438",
+      "bytes": 1197
+    }
+  },
+  "blockers": [
+    "CALIBRATION_ONLY",
+    "COMMERCIAL_USE_ATTESTATION_REQUIRED",
+    "HUMAN_CREATIVE_REVIEW_REQUIRED"
+  ]
+}

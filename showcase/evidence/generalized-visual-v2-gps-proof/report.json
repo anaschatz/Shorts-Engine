@@ -1,0 +1,725 @@
+{
+  "schemaVersion": 1,
+  "proofProfile": "generalized_visual_composition_v2_video_proof",
+  "storyId": "gps",
+  "generatedAt": "2026-08-07T22:23:17.793Z",
+  "publishable": false,
+  "humanReviewStatus": "pending",
+  "humanApproved": false,
+  "productionReady": false,
+  "trust": {
+    "mode": "calibration_trusted",
+    "disclosure": "local_llm_generated_nonproduction"
+  },
+  "rights": {
+    "status": "calibration_only_not_commercially_attested",
+    "source": "showcase/assets/mechanism-explainer-gps-calibration-v1.mp4",
+    "publishApprovalRequired": true
+  },
+  "planner": {
+    "plannerId": "local_llm_visual_program_v2_planner",
+    "mode": "openai_compatible",
+    "providerId": "local_openai_compatible",
+    "modelId": "qwen3:4b-instruct",
+    "promptProfileId": "generalized_visual_program_v2_local_composer_prompt_v1",
+    "plannerConfigurationHash": "14b0f364949f8140c2f0e21403a910f5db088620616469fea6b421ee46fbebff",
+    "providerSelectionHash": "b241e1c1b09c762d6ec633a0ffc11a6270519012b8760732340dc8c10e640df2",
+    "choiceHash": "a7aa19fcf10bdb048b53de71e58c326b3b6be8d348c0d49efc188b27181fdbdf",
+    "promptProjectionHash": "eea4676caacedb956b7d0352c27d9ffea549a4f7e5ef6c05b2844e29ec158800",
+    "attemptCount": 1,
+    "fallbackUsed": false,
+    "failure": null
+  },
+  "semanticSource": {
+    "profile": "operator_calibration_graph_v1",
+    "version": "1.0.0",
+    "sourceProfile": "mechanism_explainer_calibration_v1",
+    "sourceGraphHash": "1b716915a3e8a07c021eadf116242e7458ba01acdf650f5ffed2cec27875b7c7",
+    "approvedDraftHash": "134ce9505f0ffdb066541dbd1307c201309b489378fa29012777bdab12639837",
+    "timingContextHash": "c0b64a06041985eca50ff1499d6019188ebd18c8ea5ccd904aafac8f4d01249c",
+    "entityCount": 9,
+    "propositionCount": 11,
+    "sourceGraphAuthoringMode": "operator_calibration_fixture",
+    "v2GraphHandAuthored": true
+  },
+  "bindings": {
+    "proposalHash": "4a5c99cfa895e84319630d5db721cc1835df5c6d1f4934a652203dcc66c60f3a",
+    "semanticEventGraphHash": "1b716915a3e8a07c021eadf116242e7458ba01acdf650f5ffed2cec27875b7c7",
+    "timingContextHash": "c0b64a06041985eca50ff1499d6019188ebd18c8ea5ccd904aafac8f4d01249c",
+    "draftHash": "134ce9505f0ffdb066541dbd1307c201309b489378fa29012777bdab12639837",
+    "sourceRevisionHash": "eaf5966c3c358268d38377fe89734d0463ed4551ce299a34868a9bc0c63425c8"
+  },
+  "style": {
+    "specId": "educational_line_art_reference_v1",
+    "specVersion": "1.0.0",
+    "contentHash": "fc86508b2b89e8a974caad385684ddb214c52710beaad99ff283f23f7c956601"
+  },
+  "renderer": {
+    "profile": "generalized_visual_composition_renderer_v2",
+    "version": "2.0.0"
+  },
+  "duration": {
+    "fps": 30,
+    "totalFrames": 899
+  },
+  "proposal": {
+    "profile": "generalized_visual_program_proposal_v2",
+    "containsEngineOwnedGeometry": false,
+    "containsVisibleCopy": false,
+    "sceneCount": 3
+  },
+  "fingerprints": {
+    "program": "3c4b49cfe99df1de1499fa25c0b0a25965181a5b77c7d305ded2b3f18a07ac48",
+    "composition": "14f544373755fec106e2ee045fdb3e94ca20d7ae627b2c6ac37d7de5afd889d3",
+    "scenes": [
+      {
+        "id": "visual_scene_00",
+        "fingerprint": "d7e6fc1c4efe730d7b9b1f0daae34b569d8d35536c1001c7761a83b5c44342e2"
+      },
+      {
+        "id": "visual_scene_01",
+        "fingerprint": "cfaadb955cb216140ba42132a9343bae5f636c64e36b8c21d3ef6abebad933ed"
+      },
+      {
+        "id": "visual_scene_02",
+        "fingerprint": "66b1e381312ef532b77c9d673f6b5b7d09a159b6ce5d3e60f28cf14036b701b8"
+      }
+    ],
+    "sampledFrames": {
+      "0": "eced623e3e6fcead23685e6cfa38725c48a788c7b64d8aadf24fce7d93667d7b",
+      "60": "8edb260ff29b4b4007df30fc9da60e233f6190994f7fdf8ea1ad1cc8ae667b12",
+      "120": "5489c79b131c9552b944b028a900b260598eb269f785205d6cc3985d4321e53b",
+      "180": "d79da20642512ed5ecf63206106341d0aaf9f39035da2127c8d8fde9f2ede421",
+      "240": "0b5a43baba31028329876ee261e9cc69db6d2a1868f435dce08cdf72ee95a4e0",
+      "300": "b47c1793481d806850c1af9a33fd155edbde6f3e3d50027b1fdc874931e0bee8",
+      "320": "393fd5d348793f180b4a110bf7cb6e429782446fac7d354b93d2a4ffb40b14eb",
+      "360": "8b9e3f26ba2a6cf4521d50ba76340f2aa4733c800b92dda333e6a3cc17b4e72c",
+      "420": "7c8487247636023c510b1fa06576d9738f84a8c9f589dd61b4ac11c908cfb2cd",
+      "480": "f562a945c067e5d2e12ba2f85010a8e010e072f4a7c0a5b738e08efe306801fa",
+      "540": "88828b2f3d66a29eccf1db1bfc24e8ce5398e33e1a9b0f7a5b8775fafa88f98c",
+      "563": "ae7a41bcd63a2d971849825a92efd5df1b3edbb1313e260b36cff4acee1f7be3",
+      "600": "eaf2c26c15d327f9a958a9326955956c2e782c2b41a7f96ad84f0dd380540dc5",
+      "660": "5ea34f4598a7759f05556f1017de992c2b3941c3b2cbef25c0c5587369091ed8",
+      "720": "da848ce9a1f696c22d3f376822006b9b43cdd02fc1912d9f3d3d63faa696a2e4",
+      "780": "2459fe8d28b8a14b298ee9f24f952e390ed8165eb3022fb7c4fffa58e0a0b95b",
+      "840": "6198908b8e67d3275972570596c44330b0de27d9f9e15534b63120f30ae2e3f9",
+      "891": "975dc1f0b9b40f5ec644f5117d2bd0da267403d33f7101055a1b0dfa542f32d9",
+      "898": "975dc1f0b9b40f5ec644f5117d2bd0da267403d33f7101055a1b0dfa542f32d9"
+    }
+  },
+  "semanticTrace": [
+    {
+      "sceneId": "visual_scene_00",
+      "entityIds": [
+        "gps_satellite",
+        "gps_week_value",
+        "gps_receiver",
+        "gps_maximum"
+      ],
+      "predicates": [
+        "transmits_week_value",
+        "encoded_by_ten_bits",
+        "reaches_limit",
+        "has_next_value"
+      ],
+      "operations": [
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity"
+      ]
+    },
+    {
+      "sceneId": "visual_scene_01",
+      "entityIds": [
+        "gps_maximum",
+        "gps_zero",
+        "gps_receiver",
+        "gps_wrong_date",
+        "gps_real_time"
+      ],
+      "predicates": [
+        "rolls_over_to",
+        "maps_zero_to_previous_cycle",
+        "contrasts_with_real_time"
+      ],
+      "operations": [
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity"
+      ]
+    },
+    {
+      "sceneId": "visual_scene_02",
+      "entityIds": [
+        "gps_real_time",
+        "gps_correct_date",
+        "gps_patch",
+        "gps_receiver",
+        "gps_zero"
+      ],
+      "predicates": [
+        "continues_forward_to",
+        "corrects_mapping",
+        "maps_to_correct_cycle",
+        "repeats_while_time_continues"
+      ],
+      "operations": [
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity",
+        "draw:relation",
+        "focus:entity"
+      ]
+    }
+  ],
+  "qualityReports": {
+    "semanticTrace": {
+      "schemaVersion": 1,
+      "profile": "visual_program_v2_semantic_trace_report_v1",
+      "planHash": "3c4b49cfe99df1de1499fa25c0b0a25965181a5b77c7d305ded2b3f18a07ac48",
+      "passed": true,
+      "scenes": [
+        {
+          "sceneId": "visual_scene_00",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 320,
+            "endFrame": 328
+          },
+          "events": [
+            {
+              "eventId": "event_0_00",
+              "propositionId": "prop_gps_signal_value",
+              "selectedEntityIds": [
+                "gps_satellite",
+                "gps_week_value"
+              ],
+              "nonTextEntityIds": [
+                "gps_satellite",
+                "gps_week_value"
+              ],
+              "relationIds": [
+                "relation_0_00"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_00",
+                "track_0_01"
+              ],
+              "cue": {
+                "startFrame": 0,
+                "endFrame": 73
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_0_00",
+                  "certainty": "verified",
+                  "presentation": "qualified_dashed"
+                }
+              ]
+            },
+            {
+              "eventId": "event_0_01",
+              "propositionId": "prop_gps_store_bits",
+              "selectedEntityIds": [
+                "gps_week_value",
+                "gps_receiver"
+              ],
+              "nonTextEntityIds": [
+                "gps_week_value",
+                "gps_receiver"
+              ],
+              "relationIds": [
+                "relation_0_01"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_02",
+                "track_0_03"
+              ],
+              "cue": {
+                "startFrame": 81,
+                "endFrame": 163
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_0_01",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_0_02",
+              "propositionId": "prop_gps_limit",
+              "selectedEntityIds": [
+                "gps_week_value",
+                "gps_maximum"
+              ],
+              "nonTextEntityIds": [
+                "gps_week_value",
+                "gps_maximum"
+              ],
+              "relationIds": [
+                "relation_0_02"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_04",
+                "track_0_05"
+              ],
+              "cue": {
+                "startFrame": 172,
+                "endFrame": 247
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_0_02",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_0_03",
+              "propositionId": "prop_gps_no_next",
+              "selectedEntityIds": [
+                "gps_maximum",
+                "gps_week_value"
+              ],
+              "nonTextEntityIds": [
+                "gps_maximum",
+                "gps_week_value"
+              ],
+              "relationIds": [
+                "relation_0_03"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_0_06",
+                "track_0_07"
+              ],
+              "cue": {
+                "startFrame": 256,
+                "endFrame": 319
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_0_03",
+                  "certainty": "verified",
+                  "presentation": "qualified_dashed"
+                }
+              ]
+            }
+          ],
+          "violations": []
+        },
+        {
+          "sceneId": "visual_scene_01",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 563,
+            "endFrame": 571
+          },
+          "events": [
+            {
+              "eventId": "event_1_00",
+              "propositionId": "prop_gps_rollover",
+              "selectedEntityIds": [
+                "gps_maximum",
+                "gps_zero"
+              ],
+              "nonTextEntityIds": [
+                "gps_maximum",
+                "gps_zero"
+              ],
+              "relationIds": [
+                "relation_1_00"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_1_00",
+                "track_1_01"
+              ],
+              "cue": {
+                "startFrame": 328,
+                "endFrame": 402
+              },
+              "causalRelations": []
+            },
+            {
+              "eventId": "event_1_01",
+              "propositionId": "prop_gps_old_mapping",
+              "selectedEntityIds": [
+                "gps_receiver",
+                "gps_wrong_date"
+              ],
+              "nonTextEntityIds": [
+                "gps_receiver",
+                "gps_wrong_date"
+              ],
+              "relationIds": [
+                "relation_1_01"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_1_02",
+                "track_1_03"
+              ],
+              "cue": {
+                "startFrame": 413,
+                "endFrame": 497
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_1_01",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_1_02",
+              "propositionId": "prop_gps_backward",
+              "selectedEntityIds": [
+                "gps_wrong_date",
+                "gps_real_time"
+              ],
+              "nonTextEntityIds": [
+                "gps_wrong_date",
+                "gps_real_time"
+              ],
+              "relationIds": [
+                "relation_1_02"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_1_04",
+                "track_1_05"
+              ],
+              "cue": {
+                "startFrame": 506,
+                "endFrame": 562
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_1_02",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            }
+          ],
+          "violations": []
+        },
+        {
+          "sceneId": "visual_scene_02",
+          "passed": true,
+          "settledHold": {
+            "startFrame": 891,
+            "endFrame": 899
+          },
+          "events": [
+            {
+              "eventId": "event_2_00",
+              "propositionId": "prop_gps_time_continues",
+              "selectedEntityIds": [
+                "gps_real_time",
+                "gps_correct_date"
+              ],
+              "nonTextEntityIds": [
+                "gps_real_time",
+                "gps_correct_date"
+              ],
+              "relationIds": [
+                "relation_2_00"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_2_00",
+                "track_2_01"
+              ],
+              "cue": {
+                "startFrame": 571,
+                "endFrame": 626
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_2_00",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_2_01",
+              "propositionId": "prop_gps_patch",
+              "selectedEntityIds": [
+                "gps_patch",
+                "gps_receiver"
+              ],
+              "nonTextEntityIds": [
+                "gps_patch",
+                "gps_receiver"
+              ],
+              "relationIds": [
+                "relation_2_01"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_2_02",
+                "track_2_03"
+              ],
+              "cue": {
+                "startFrame": 636,
+                "endFrame": 713
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_2_01",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_2_02",
+              "propositionId": "prop_gps_correct_mapping",
+              "selectedEntityIds": [
+                "gps_receiver",
+                "gps_correct_date"
+              ],
+              "nonTextEntityIds": [
+                "gps_receiver",
+                "gps_correct_date"
+              ],
+              "relationIds": [
+                "relation_2_02"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_2_04",
+                "track_2_05"
+              ],
+              "cue": {
+                "startFrame": 724,
+                "endFrame": 786
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_2_02",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            },
+            {
+              "eventId": "event_2_03",
+              "propositionId": "prop_gps_payoff",
+              "selectedEntityIds": [
+                "gps_zero",
+                "gps_real_time"
+              ],
+              "nonTextEntityIds": [
+                "gps_zero",
+                "gps_real_time"
+              ],
+              "relationIds": [
+                "relation_2_03"
+              ],
+              "stateChangeTrackIds": [],
+              "trackIds": [
+                "track_2_06",
+                "track_2_07"
+              ],
+              "cue": {
+                "startFrame": 795,
+                "endFrame": 854
+              },
+              "causalRelations": [
+                {
+                  "relationId": "relation_2_03",
+                  "certainty": "verified",
+                  "presentation": "unqualified_solid"
+                }
+              ]
+            }
+          ],
+          "violations": []
+        }
+      ],
+      "violations": [],
+      "summary": {
+        "sceneCount": 3,
+        "eventCount": 11,
+        "checkedTrackCount": 22,
+        "violationCount": 0
+      },
+      "reportHash": "1070ba29c10f2341365ac35786b1ab576d16458afb52c3ba5a60e2939bfb11b1"
+    },
+    "persistentTitleOcr": [
+      {
+        "frame": 0,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "0735e97102e096b1870cd36ffc292f62cdea32ea18706c68cb6dc6f112c01483"
+      },
+      {
+        "frame": 60,
+        "detected": "WHY A GPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "2e070db2e76d349935eb1ab2fe353d97e93b8511358bbe4c2e3f204320f2e1bf"
+      },
+      {
+        "frame": 120,
+        "detected": "WHY A GPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "2e070db2e76d349935eb1ab2fe353d97e93b8511358bbe4c2e3f204320f2e1bf"
+      },
+      {
+        "frame": 180,
+        "detected": "WHY A GPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "2e070db2e76d349935eb1ab2fe353d97e93b8511358bbe4c2e3f204320f2e1bf"
+      },
+      {
+        "frame": 240,
+        "detected": "WHY A GPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "2e070db2e76d349935eb1ab2fe353d97e93b8511358bbe4c2e3f204320f2e1bf"
+      },
+      {
+        "frame": 300,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "cf32caece4d993b26ad74962046d5158003b7b7f3c4edd32800322f324e45e8a"
+      },
+      {
+        "frame": 320,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "cf32caece4d993b26ad74962046d5158003b7b7f3c4edd32800322f324e45e8a"
+      },
+      {
+        "frame": 360,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "a37604ba4ad2c609b74cba8a9151ff6175c06a62a481dcf7ffb78629bdcacaa2"
+      },
+      {
+        "frame": 420,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "a37604ba4ad2c609b74cba8a9151ff6175c06a62a481dcf7ffb78629bdcacaa2"
+      },
+      {
+        "frame": 480,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "cf32caece4d993b26ad74962046d5158003b7b7f3c4edd32800322f324e45e8a"
+      },
+      {
+        "frame": 540,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "7d7ed8e62b8eba4d7296d1fd693a0e6615d0c2a2819cf1ae608642c4e9e3a0df"
+      },
+      {
+        "frame": 563,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "cf32caece4d993b26ad74962046d5158003b7b7f3c4edd32800322f324e45e8a"
+      },
+      {
+        "frame": 600,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "cf32caece4d993b26ad74962046d5158003b7b7f3c4edd32800322f324e45e8a"
+      },
+      {
+        "frame": 660,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "cf32caece4d993b26ad74962046d5158003b7b7f3c4edd32800322f324e45e8a"
+      },
+      {
+        "frame": 720,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "cf32caece4d993b26ad74962046d5158003b7b7f3c4edd32800322f324e45e8a"
+      },
+      {
+        "frame": 780,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "6b73b0fc0aa2d89ff66711361c857b35f7f98c08dedb8c42112eab59f6bdf14e"
+      },
+      {
+        "frame": 840,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "6b73b0fc0aa2d89ff66711361c857b35f7f98c08dedb8c42112eab59f6bdf14e"
+      },
+      {
+        "frame": 891,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "6b73b0fc0aa2d89ff66711361c857b35f7f98c08dedb8c42112eab59f6bdf14e"
+      },
+      {
+        "frame": 898,
+        "detected": "WHY AGPS DATE JUMPED BACK",
+        "passed": true,
+        "cropSha256": "6b73b0fc0aa2d89ff66711361c857b35f7f98c08dedb8c42112eab59f6bdf14e"
+      }
+    ]
+  },
+  "media": {
+    "width": 1080,
+    "height": 1920,
+    "frameRate": "30/1",
+    "frameCount": 899,
+    "videoCodec": "h264",
+    "pixelFormat": "yuv420p",
+    "audioCodec": "aac",
+    "audioSampleRate": 48000,
+    "audioChannels": 1,
+    "durationSeconds": 29.966667,
+    "sha256": "28134474326a7fc76e061e2fce3fcec544b3e257fcc6c25aadb03abd875beb7b",
+    "bytes": 2001183
+  },
+  "sources": {
+    "sourceVideoHash": "0585769d9b0380891262173fd4bfb182d49596a5cbf4e725d7389b8a05207e94",
+    "sourceAssHash": "e3c2a051ee996e52b23d275f17cb2bdd7ac3888a28c339ecfd9e750e0b5fce9e",
+    "sourceVttHash": "86e91682106eeead238915dc7d9c860a62633818dd98bf571a63530dafe429fa"
+  },
+  "contactFrames": [
+    0,
+    128,
+    257,
+    385,
+    513,
+    641,
+    770,
+    898
+  ],
+  "gates": {
+    "technical": "passed",
+    "deterministicPlan": "passed",
+    "noRemoteAssets": "passed",
+    "persistentTitleOcr": "passed",
+    "semanticComposition": "passed",
+    "humanPerceptual": "pending"
+  }
+}

@@ -1,0 +1,20 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Narration,Arial,76,&H00FA8BA7,&H00FFFFFF,&H00030303,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,86,86,269,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:02.40,Narration,,0,0,0,,A six-digit odometer\Nhas six number wheels.
+Dialogue: 0,0:00:02.70,0:00:04.90,Narration,,0,0,0,,Each wheel carries into\Nthe next after nine.
+Dialogue: 0,0:00:05.23,0:00:07.60,Narration,,0,0,0,,At the maximum, all\Nsix wheels show nine.
+Dialogue: 0,0:00:07.93,0:00:10.23,Narration,,0,0,0,,One more mile carries\Nthrough all six wheels.
+Dialogue: 0,0:00:10.60,0:00:12.23,Narration,,0,0,0,,The display returns to zero.
+Dialogue: 0,0:00:12.56,0:00:14.03,Narration,,0,0,0,,The car did not become new.
+Dialogue: 0,0:00:14.36,0:00:16.40,Narration,,0,0,0,,The counter simply\Nran out of digits.

@@ -1,0 +1,388 @@
+{
+  "storyTitle": "WHY A GPS DATE JUMPED BACK",
+  "draftHash": "134ce9505f0ffdb066541dbd1307c201309b489378fa29012777bdab12639837",
+  "sourceStoryboardHash": "eaf5966c3c358268d38377fe89734d0463ed4551ce299a34868a9bc0c63425c8",
+  "timingContextHash": "c0b64a06041985eca50ff1499d6019188ebd18c8ea5ccd904aafac8f4d01249c",
+  "entities": [
+    {
+      "id": "gps_satellite",
+      "kind": "satellite",
+      "visualSubjectKind": "satellite",
+      "label": "GPS SATELLITE",
+      "persistent": true,
+      "claimIds": [
+        "claim_gps_signal"
+      ]
+    },
+    {
+      "id": "gps_week_value",
+      "kind": "numeric_token",
+      "visualSubjectKind": "numeric_token",
+      "label": "10-BIT WEEK VALUE",
+      "persistent": true,
+      "claimIds": [
+        "claim_gps_signal",
+        "claim_gps_bits"
+      ]
+    },
+    {
+      "id": "gps_receiver",
+      "kind": "receiver",
+      "visualSubjectKind": "receiver",
+      "label": "GPS RECEIVER",
+      "persistent": true,
+      "claimIds": [
+        "claim_gps_bits",
+        "claim_gps_mapping"
+      ]
+    },
+    {
+      "id": "gps_maximum",
+      "kind": "numeric_token",
+      "visualSubjectKind": "numeric_token",
+      "label": "1,023",
+      "persistent": false,
+      "claimIds": [
+        "claim_gps_limit"
+      ]
+    },
+    {
+      "id": "gps_zero",
+      "kind": "numeric_token",
+      "visualSubjectKind": "numeric_token",
+      "label": "0000",
+      "persistent": true,
+      "claimIds": [
+        "claim_gps_rollover"
+      ]
+    },
+    {
+      "id": "gps_wrong_date",
+      "kind": "calendar",
+      "visualSubjectKind": "calendar",
+      "label": "1999 — WRONG",
+      "persistent": false,
+      "claimIds": [
+        "claim_gps_wrong_date"
+      ]
+    },
+    {
+      "id": "gps_real_time",
+      "kind": "clock",
+      "visualSubjectKind": "clock",
+      "label": "REAL TIME →",
+      "persistent": true,
+      "claimIds": [
+        "claim_gps_real_time"
+      ]
+    },
+    {
+      "id": "gps_correct_date",
+      "kind": "calendar",
+      "visualSubjectKind": "calendar",
+      "label": "2019 — CORRECT",
+      "persistent": true,
+      "claimIds": [
+        "claim_gps_correct_date"
+      ]
+    },
+    {
+      "id": "gps_patch",
+      "kind": "document",
+      "visualSubjectKind": "document",
+      "label": "SOFTWARE UPDATE",
+      "persistent": false,
+      "claimIds": [
+        "claim_gps_patch"
+      ]
+    }
+  ],
+  "propositions": [
+    {
+      "id": "prop_gps_signal_value",
+      "beatId": "gps_week_not_date",
+      "eventKind": "causal_action",
+      "predicate": "transmits_week_value",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_satellite"
+      },
+      "object": {
+        "entityIds": [
+          "gps_week_value"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_week_value"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 0,
+        "endFrame": 73
+      }
+    },
+    {
+      "id": "prop_gps_store_bits",
+      "beatId": "gps_ten_bits",
+      "eventKind": "causal_action",
+      "predicate": "encoded_by_ten_bits",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_week_value"
+      },
+      "object": {
+        "entityIds": [
+          "gps_receiver"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_receiver"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 81,
+        "endFrame": 163
+      }
+    },
+    {
+      "id": "prop_gps_limit",
+      "beatId": "gps_value_range",
+      "eventKind": "causal_action",
+      "predicate": "reaches_limit",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_week_value"
+      },
+      "object": {
+        "entityIds": [
+          "gps_maximum"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_maximum"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 172,
+        "endFrame": 247
+      }
+    },
+    {
+      "id": "prop_gps_no_next",
+      "beatId": "gps_at_limit",
+      "eventKind": "causal_action",
+      "predicate": "has_next_value",
+      "polarity": "negated",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_maximum"
+      },
+      "object": {
+        "entityIds": [
+          "gps_week_value"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_maximum"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 256,
+        "endFrame": 319
+      }
+    },
+    {
+      "id": "prop_gps_rollover",
+      "beatId": "gps_rollover",
+      "eventKind": "state_transition",
+      "predicate": "rolls_over_to",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_maximum"
+      },
+      "object": {
+        "entityIds": [
+          "gps_zero"
+        ]
+      },
+      "visualAction": {
+        "operation": "replace_value",
+        "focusEntityIds": [
+          "gps_zero"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 328,
+        "endFrame": 402
+      }
+    },
+    {
+      "id": "prop_gps_old_mapping",
+      "beatId": "gps_old_cycle",
+      "eventKind": "causal_action",
+      "predicate": "maps_zero_to_previous_cycle",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_receiver"
+      },
+      "object": {
+        "entityIds": [
+          "gps_wrong_date"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_wrong_date"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 413,
+        "endFrame": 497
+      }
+    },
+    {
+      "id": "prop_gps_backward",
+      "beatId": "gps_date_backward",
+      "eventKind": "causal_action",
+      "predicate": "contrasts_with_real_time",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_wrong_date"
+      },
+      "object": {
+        "entityIds": [
+          "gps_real_time"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_wrong_date"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 506,
+        "endFrame": 562
+      }
+    },
+    {
+      "id": "prop_gps_time_continues",
+      "beatId": "gps_time_continues",
+      "eventKind": "causal_action",
+      "predicate": "continues_forward_to",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_real_time"
+      },
+      "object": {
+        "entityIds": [
+          "gps_correct_date"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_real_time"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 571,
+        "endFrame": 626
+      }
+    },
+    {
+      "id": "prop_gps_patch",
+      "beatId": "gps_patch",
+      "eventKind": "causal_action",
+      "predicate": "corrects_mapping",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_patch"
+      },
+      "object": {
+        "entityIds": [
+          "gps_receiver"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_receiver"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 636,
+        "endFrame": 713
+      }
+    },
+    {
+      "id": "prop_gps_correct_mapping",
+      "beatId": "gps_correct_date",
+      "eventKind": "causal_action",
+      "predicate": "maps_to_correct_cycle",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_receiver"
+      },
+      "object": {
+        "entityIds": [
+          "gps_correct_date"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_correct_date"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 724,
+        "endFrame": 786
+      }
+    },
+    {
+      "id": "prop_gps_payoff",
+      "beatId": "gps_payoff",
+      "eventKind": "causal_action",
+      "predicate": "repeats_while_time_continues",
+      "polarity": "affirmed",
+      "certainty": "verified",
+      "subject": {
+        "entityId": "gps_zero"
+      },
+      "object": {
+        "entityIds": [
+          "gps_real_time"
+        ]
+      },
+      "visualAction": {
+        "operation": "connect_entities",
+        "focusEntityIds": [
+          "gps_real_time"
+        ]
+      },
+      "wordSpan": {
+        "startFrame": 795,
+        "endFrame": 854
+      }
+    }
+  ]
+}

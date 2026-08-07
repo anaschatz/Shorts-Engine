@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism-explainer-v1",
+  "id": "odometer_rollover_mechanism_v1",
+  "title": "WHY AN ODOMETER RETURNS TO ZERO",
+  "device": {
+    "label": "SIX-DIGIT ODOMETER",
+    "digitCount": 6,
+    "unit": "MILES"
+  },
+  "phrases": [
+    {
+      "id": "odometer_six_wheels",
+      "text": "A six-digit odometer has six number wheels.",
+      "pauseAfterMs": 280,
+      "visual": {
+        "action": "enter",
+        "triggerToken": null,
+        "displayFrom": "000009",
+        "displayTo": "000009",
+        "status": "SIX NUMBER WHEELS",
+        "tone": "neutral",
+        "helper": {
+          "recipe": "range",
+          "title": "DISPLAY SIZE",
+          "primary": "6 DIGITS",
+          "secondary": "ONE FIXED LIMIT"
+        }
+      }
+    },
+    {
+      "id": "odometer_carry",
+      "text": "Each wheel carries into the next after nine.",
+      "pauseAfterMs": 340,
+      "visual": {
+        "action": "update",
+        "triggerToken": null,
+        "displayFrom": "000009",
+        "displayTo": "000010",
+        "status": "NINE CARRIES LEFT",
+        "tone": "accent",
+        "helper": {
+          "recipe": "carry",
+          "title": "AFTER NINE",
+          "primary": "000009 BECOMES 000010",
+          "secondary": "THE NEXT WHEEL ADVANCES"
+        }
+      }
+    },
+    {
+      "id": "odometer_last_value",
+      "text": "At the maximum, all six wheels show nine.",
+      "pauseAfterMs": 320,
+      "visual": {
+        "action": "update",
+        "triggerToken": null,
+        "displayFrom": "000010",
+        "displayTo": "999999",
+        "status": "LAST POSSIBLE VALUE",
+        "tone": "warning",
+        "helper": {
+          "recipe": "range",
+          "title": "ALL SIX WHEELS",
+          "primary": "999,999",
+          "secondary": "NO HIGHER DISPLAY"
+        }
+      }
+    },
+    {
+      "id": "odometer_one_more",
+      "text": "One more mile carries through all six wheels.",
+      "pauseAfterMs": 360,
+      "visual": {
+        "action": "rollover",
+        "triggerToken": null,
+        "displayFrom": "999999",
+        "displayTo": "000000",
+        "status": "ALL WHEELS ROLL",
+        "tone": "warning",
+        "helper": {
+          "recipe": "carry",
+          "title": "ONE MORE MILE",
+          "primary": "999,999",
+          "secondary": "CARRY THROUGH ALL SIX"
+        }
+      }
+    },
+    {
+      "id": "odometer_zero",
+      "text": "The display returns to zero.",
+      "pauseAfterMs": 340,
+      "visual": {
+        "action": "hold",
+        "triggerToken": null,
+        "displayFrom": "000000",
+        "displayTo": "000000",
+        "status": "DISPLAY REPEATS",
+        "tone": "accent",
+        "helper": {
+          "recipe": "range",
+          "title": "SAME SIX DIGITS",
+          "primary": "000,000",
+          "secondary": "DISPLAY WRAPS TO ZERO"
+        }
+      }
+    },
+    {
+      "id": "odometer_same_car",
+      "text": "The car did not become new.",
+      "pauseAfterMs": 320,
+      "visual": {
+        "action": "hold",
+        "triggerToken": null,
+        "displayFrom": "000000",
+        "displayTo": "000000",
+        "status": "SAME CAR",
+        "tone": "neutral",
+        "helper": {
+          "recipe": "interpretation",
+          "title": "THE MACHINE",
+          "primary": "KEPT MOVING",
+          "secondary": "ONLY THE DISPLAY RESET"
+        }
+      }
+    },
+    {
+      "id": "odometer_payoff",
+      "text": "The counter simply ran out of digits.",
+      "pauseAfterMs": 500,
+      "visual": {
+        "action": "resolve",
+        "triggerToken": null,
+        "displayFrom": "000000",
+        "displayTo": "000000",
+        "status": "FINITE COUNTER",
+        "tone": "success",
+        "helper": {
+          "recipe": "interpretation",
+          "title": "NOT A NEW CAR",
+          "primary": "THE COUNTER",
+          "secondary": "RAN OUT OF DIGITS"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1425 @@
+{
+  "schemaVersion": 1,
+  "profile": "mechanism_explainer_calibration_sampled_frames_v1",
+  "storyId": "odometer",
+  "compositionHash": "81f59e169e250cf78b39372c647612c0deb23fcf20348e1008b7a9b3199f1821",
+  "storySpecHash": "cb7dfd171523995236ec80c9736cbfcdaa199e7f4ab857199adcea40980f57bf",
+  "pixelHashProfile": "rgb24_most_significant_bit_v1",
+  "sampleFrames": [
+    0,
+    4,
+    8,
+    77,
+    80,
+    81,
+    85,
+    89,
+    153,
+    156,
+    157,
+    161,
+    165,
+    230,
+    237,
+    238,
+    243,
+    248,
+    306,
+    317,
+    318,
+    376,
+    377,
+    383,
+    430,
+    431,
+    435,
+    439,
+    459,
+    536
+  ],
+  "rendererHashes": {
+    "0": "3e56ca28ce4c2c4532940f58b2fb9422eccdc8a443f4371f4b827797c388e375",
+    "4": "decd741bfccc070f9cfd083995a0c8c20fed47d56c389401fad5f0e6fd97fd91",
+    "8": "c108a985e1d45bbd6c4f6e1f8d00027edcda8f1e4b49082da08fa8ce25e5146f",
+    "77": "8a81b6b766ac6e67126b25e4ebc9393b2ec9a609d65421f7124608ccce1d4b0b",
+    "80": "3e56ca28ce4c2c4532940f58b2fb9422eccdc8a443f4371f4b827797c388e375",
+    "81": "3e56ca28ce4c2c4532940f58b2fb9422eccdc8a443f4371f4b827797c388e375",
+    "85": "71192011a677e19e1bbe65049bbea73170ef3333268f7c04e90f9d653b914a9f",
+    "89": "7de3964361ebc186011bee743643afe39f6cc980418d57f564e8664cc81746cb",
+    "153": "9dfb25b2d68bfe0e371b92f85bc895efc388841cd73a7831551e08a617b143d0",
+    "156": "14956b3d994867ac58b9d954d2451555f90bdfdecf28bb4292c2fdd44e878dfe",
+    "157": "14956b3d994867ac58b9d954d2451555f90bdfdecf28bb4292c2fdd44e878dfe",
+    "161": "e1cbd05a342edf360631754b142d4afb5dc57e864f24564337056b62357e8c8f",
+    "165": "de840e65d321cd2e75cbf92b9367a76aea579081abd884e1545dd79bc6fb655b",
+    "230": "de840e65d321cd2e75cbf92b9367a76aea579081abd884e1545dd79bc6fb655b",
+    "237": "a702ff3ce33f6cefafa2f2c8f0e245a3aa94da8eab3a85ba3f1f439fc7f161ed",
+    "238": "a702ff3ce33f6cefafa2f2c8f0e245a3aa94da8eab3a85ba3f1f439fc7f161ed",
+    "243": "40ec75373dc8223bb9cf199a39eaa4ed4dedb76a1f9de058547b3dd56c3b7765",
+    "248": "408cf6f0b91636e5efdfeb69cec74336e1b32a8b23d4f32590af3d800e215118",
+    "306": "408cf6f0b91636e5efdfeb69cec74336e1b32a8b23d4f32590af3d800e215118",
+    "317": "f3c60ab9afd317a6e3dfe1eb96f5d0291f29bfe737830fe8bc3e341a8d324305",
+    "318": "f3c60ab9afd317a6e3dfe1eb96f5d0291f29bfe737830fe8bc3e341a8d324305",
+    "376": "199aaee952e498e56c16289ec797538da49df2d748dc265033ac9c7178c0e911",
+    "377": "199aaee952e498e56c16289ec797538da49df2d748dc265033ac9c7178c0e911",
+    "383": "5f60dbcc04b9cfce8ad293f30563b1fa49c9c6f72a496ca67322e73ebf45c019",
+    "430": "ae4b69d5b1e016e074a48616c39c02fe86b5ec95abaed8c752b951bebe97d502",
+    "431": "ae4b69d5b1e016e074a48616c39c02fe86b5ec95abaed8c752b951bebe97d502",
+    "435": "0310917914a934f445e62e028acef60e595e4d485888c378982ccbcc2637df36",
+    "439": "b679784cf405114ca7adfcdbeaeb696e5a23ebb7619f9ec0946f5885d0de38da",
+    "459": "b679784cf405114ca7adfcdbeaeb696e5a23ebb7619f9ec0946f5885d0de38da",
+    "536": "5cd4c383f668055b33f410c9e883a7dd3da3e27e00af07e4d5639fd9aaf7f584"
+  },
+  "runtimeStates": {
+    "0": {
+      "frame": 0,
+      "state": {
+        "frame": 0,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "odometer_six_wheels",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000009",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "4": {
+      "frame": 4,
+      "state": {
+        "frame": 4,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "odometer_six_wheels",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000009",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "8": {
+      "frame": 8,
+      "state": {
+        "frame": 8,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "odometer_six_wheels",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000009",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "77": {
+      "frame": 77,
+      "state": {
+        "frame": 77,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "odometer_six_wheels",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000009",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.648,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "80": {
+      "frame": 80,
+      "state": {
+        "frame": 80,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 0,
+        "phraseId": "odometer_six_wheels",
+        "action": "enter",
+        "triggerFrame": 0,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000009",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "81": {
+      "frame": 81,
+      "state": {
+        "frame": 81,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "odometer_carry",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000009",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "85": {
+      "frame": 85,
+      "state": {
+        "frame": 85,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "odometer_carry",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000010",
+          "fromOpacity": 0,
+          "toOpacity": 0.25,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 0.25
+      }
+    },
+    "89": {
+      "frame": 89,
+      "state": {
+        "frame": 89,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "odometer_carry",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000010",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "153": {
+      "frame": 153,
+      "state": {
+        "frame": 153,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "odometer_carry",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000010",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.648,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "156": {
+      "frame": 156,
+      "state": {
+        "frame": 156,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 1,
+        "phraseId": "odometer_carry",
+        "action": "update",
+        "triggerFrame": 81,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000010",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "157": {
+      "frame": 157,
+      "state": {
+        "frame": 157,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "odometer_last_value",
+        "action": "update",
+        "triggerFrame": 157,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000010",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "161": {
+      "frame": 161,
+      "state": {
+        "frame": 161,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "odometer_last_value",
+        "action": "update",
+        "triggerFrame": 157,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "999999",
+          "fromOpacity": 0,
+          "toOpacity": 0.25,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 0.25
+      }
+    },
+    "165": {
+      "frame": 165,
+      "state": {
+        "frame": 165,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "odometer_last_value",
+        "action": "update",
+        "triggerFrame": 157,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "999999",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "230": {
+      "frame": 230,
+      "state": {
+        "frame": 230,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "odometer_last_value",
+        "action": "update",
+        "triggerFrame": 157,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "999999",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "237": {
+      "frame": 237,
+      "state": {
+        "frame": 237,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 2,
+        "phraseId": "odometer_last_value",
+        "action": "update",
+        "triggerFrame": 157,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "999999",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "238": {
+      "frame": 238,
+      "state": {
+        "frame": 238,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 3,
+        "phraseId": "odometer_one_more",
+        "action": "rollover",
+        "triggerFrame": 238,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "999999",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "243": {
+      "frame": 243,
+      "state": {
+        "frame": 243,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 3,
+        "phraseId": "odometer_one_more",
+        "action": "rollover",
+        "triggerFrame": 238,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 0.5,
+          "toOpacity": 0.5,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.925926,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "248": {
+      "frame": 248,
+      "state": {
+        "frame": 248,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 3,
+        "phraseId": "odometer_one_more",
+        "action": "rollover",
+        "triggerFrame": 238,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "306": {
+      "frame": 306,
+      "state": {
+        "frame": 306,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 3,
+        "phraseId": "odometer_one_more",
+        "action": "rollover",
+        "triggerFrame": 238,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "317": {
+      "frame": 317,
+      "state": {
+        "frame": 317,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 3,
+        "phraseId": "odometer_one_more",
+        "action": "rollover",
+        "triggerFrame": 238,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 0,
+          "toOpacity": 1,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "carry",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "318": {
+      "frame": 318,
+      "state": {
+        "frame": 318,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 4,
+        "phraseId": "odometer_zero",
+        "action": "hold",
+        "triggerFrame": 318,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "376": {
+      "frame": 376,
+      "state": {
+        "frame": 376,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 4,
+        "phraseId": "odometer_zero",
+        "action": "hold",
+        "triggerFrame": 318,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "range",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "377": {
+      "frame": 377,
+      "state": {
+        "frame": 377,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 5,
+        "phraseId": "odometer_same_car",
+        "action": "hold",
+        "triggerFrame": 377,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "383": {
+      "frame": 383,
+      "state": {
+        "frame": 383,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 5,
+        "phraseId": "odometer_same_car",
+        "action": "hold",
+        "triggerFrame": 377,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "430": {
+      "frame": 430,
+      "state": {
+        "frame": 430,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 5,
+        "phraseId": "odometer_same_car",
+        "action": "hold",
+        "triggerFrame": 377,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "431": {
+      "frame": 431,
+      "state": {
+        "frame": 431,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 6,
+        "phraseId": "odometer_payoff",
+        "action": "resolve",
+        "triggerFrame": 431,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    },
+    "435": {
+      "frame": 435,
+      "state": {
+        "frame": 435,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 6,
+        "phraseId": "odometer_payoff",
+        "action": "resolve",
+        "triggerFrame": 431,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 0.5
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0.740741,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "439": {
+      "frame": 439,
+      "state": {
+        "frame": 439,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 6,
+        "phraseId": "odometer_payoff",
+        "action": "resolve",
+        "triggerFrame": 431,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "459": {
+      "frame": 459,
+      "state": {
+        "frame": 459,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 6,
+        "phraseId": "odometer_payoff",
+        "action": "resolve",
+        "triggerFrame": 431,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 1,
+          "visible": true
+        },
+        "activeHelperCount": 1,
+        "comprehensionHold": true,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 1,
+        "counterOpacitySum": 1
+      }
+    },
+    "536": {
+      "frame": 536,
+      "state": {
+        "frame": 536,
+        "storyId": "odometer_rollover_mechanism_v1",
+        "phraseIndex": 6,
+        "phraseId": "odometer_payoff",
+        "action": "resolve",
+        "triggerFrame": 431,
+        "primaryObjectCount": 1,
+        "primary": {
+          "id": "primary_device",
+          "opacity": 1,
+          "anchor": "primaryDevice",
+          "transform": "translate(540 580)"
+        },
+        "counter": {
+          "anchor": "counter",
+          "transform": "translate(540 560)",
+          "displayedValue": "000000",
+          "fromOpacity": 1,
+          "toOpacity": 0,
+          "motionProgress": 1
+        },
+        "helper": {
+          "recipe": "interpretation",
+          "anchor": "helperRail",
+          "transform": "translate(540 1095)",
+          "opacity": 0,
+          "visible": false
+        },
+        "activeHelperCount": 0,
+        "comprehensionHold": false,
+        "captionLaneClear": true,
+        "progressBarPresent": false,
+        "cameraTransform": null
+      },
+      "dom": {
+        "primaryCount": 1,
+        "primaryTransform": "translate(540 580)",
+        "helperSlotCount": 1,
+        "visibleHelperCount": 0,
+        "counterOpacitySum": 1
+      }
+    }
+  },
+  "freshContextRandomAccessVerification": true
+}

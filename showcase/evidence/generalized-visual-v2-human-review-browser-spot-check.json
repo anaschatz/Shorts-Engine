@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "profile": "generalized_visual_v2_human_review_browser_spot_check_v1",
+  "observedAt": "2026-08-07T22:51:18Z",
+  "reviewId": "review_bcb0d20c29470034b8bf38b7",
+  "bindings": {
+    "comparisonHash": "d1b10dddff01f3c62899c5c908a176da4e689040bd82b9beb6a97192b50529ba",
+    "assignmentHash": "616536469f0a3c3e17d0c98fd0906d34823036186ccd44d0197e9cd0b9e9e119",
+    "packReportHash": "6f725ad8ae0ac06e86461c57bc331914cc2a14302fa4350748b4705e82a09c5e",
+    "pendingResultHash": "bee575a9dc47de7c7199a33d3814de559f90c584b47eb4e5b9f8dd0946c4bb05",
+    "firstMediaHash": "ddd899c7ae9afa81894eb260c5bd4107728ddf6f32065c666a111573e3114582"
+  },
+  "method": {
+    "browser": "codex_in_app_browser",
+    "target": "loopback_same_origin_review_server",
+    "spotCheckOnly": true,
+    "persistedPackBrowserAutomationStatus": "not_run"
+  },
+  "initialState": {
+    "videoOrdinal": 1,
+    "videoCount": 3,
+    "durationSeconds": 35.6,
+    "readyState": 4,
+    "playbackRate": 1,
+    "nativeControls": false,
+    "questionsVisiblyHidden": true,
+    "implementationPlannerProviderMetadataExposed": false,
+    "storySubjectBlinded": false
+  },
+  "afterNaturalEndedEvent": {
+    "questionCount": 4,
+    "qualityRatingCount": 6,
+    "boundedConfirmationControlsVisible": true,
+    "saveActionPerformed": false
+  },
+  "mobileViewport": {
+    "width": 390,
+    "height": 844,
+    "bodyScrollWidth": 390,
+    "horizontalOverflow": false,
+    "videoWidth": 366
+  },
+  "browserLogs": {
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "limitations": [
+    "This is a direct engineering spot check, not an independent human review.",
+    "The UI-level ended event and playback rate do not provide tamper-proof server attestation of elapsed watch time.",
+    "Story subject matter remains visible in burned-in titles and comprehension questions.",
+    "No response was submitted or finalized."
+  ],
+  "humanReviewStatus": "pending",
+  "humanApproved": false,
+  "productionReady": false,
+  "publishable": false
+}

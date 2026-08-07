@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "profile": "generalized_visual_v2_release_status_v1",
+  "evaluatedAt": "2026-08-07T22:51:18Z",
+  "bindings": {
+    "comparisonFileHash": "d1b10dddff01f3c62899c5c908a176da4e689040bd82b9beb6a97192b50529ba",
+    "storyReportFileHashes": {
+      "gps": "238f8d5e754fac9c094d1f678d369f3afcb7474d42f68ae89483c64030af7d47",
+      "odometer": "2dc43e0afc27496cd2aef007d959c8479a06618b20fbbbf01d1d194496506506",
+      "baychimo": "b7cc4ada9ab9afd8f897ddea4954c5aa9b16f7f5f5618ce2d74e50693398bc61"
+    },
+    "reviewId": "review_bcb0d20c29470034b8bf38b7",
+    "reviewAssignmentHash": "616536469f0a3c3e17d0c98fd0906d34823036186ccd44d0197e9cd0b9e9e119",
+    "pendingReviewResultHash": "bee575a9dc47de7c7199a33d3814de559f90c584b47eb4e5b9f8dd0946c4bb05"
+  },
+  "automatedComparisonPassed": true,
+  "humanEvidence": {
+    "requiredReviewerCount": 5,
+    "completeHumanReviewerCount": 0,
+    "responseCount": 0,
+    "status": "insufficient_evidence"
+  },
+  "humanReviewStatus": "pending",
+  "humanApproved": false,
+  "productionReady": false,
+  "publishable": false,
+  "reason": "independent_human_perceptual_evidence_required"
+}

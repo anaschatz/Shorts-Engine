@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 2,
+  "profile": "generalized_visual_program_proposal_v2",
+  "bindings": {
+    "semanticEventGraphHash": "bc7f784640b6a0fb2e6eab88e3872d910c420a606f8b29958963b8453bc17037",
+    "timingContextHash": "3ffaf0c85564eccd5f912e5b205502079059a28b3bb2a9c63dfcb76bd543f599",
+    "draftHash": "e739545bbab1d7d2d6cbcf14910997a79294e658fd6bdc7aea274aeb59dc7912",
+    "sourceRevisionHash": "e582553506119b949ca3d0ed9f6923831099a81470522463f2618e0b9fcba553"
+  },
+  "styleSpecId": "educational_line_art_reference_v1",
+  "scenes": [
+    {
+      "id": "visual_scene_00",
+      "entityIds": [
+        "odometer_vehicle",
+        "odometer_wheel_bank",
+        "odometer_before_carry",
+        "odometer_after_carry",
+        "odometer_maximum"
+      ],
+      "propositionIds": [
+        "prop_odometer_wheels",
+        "prop_odometer_carry",
+        "prop_odometer_maximum",
+        "prop_odometer_full_carry"
+      ],
+      "layoutIntent": "directed_flow",
+      "focusEntityId": "odometer_wheel_bank"
+    },
+    {
+      "id": "visual_scene_01",
+      "entityIds": [
+        "odometer_wheel_bank",
+        "odometer_zero",
+        "odometer_vehicle"
+      ],
+      "propositionIds": [
+        "prop_odometer_rollover",
+        "prop_odometer_zero",
+        "prop_odometer_continues"
+      ],
+      "layoutIntent": "timeline_track",
+      "focusEntityId": "odometer_zero"
+    },
+    {
+      "id": "visual_scene_02",
+      "entityIds": [
+        "odometer_wheel_bank",
+        "odometer_vehicle"
+      ],
+      "propositionIds": [
+        "prop_odometer_payoff"
+      ],
+      "layoutIntent": "radial_focus",
+      "focusEntityId": "odometer_wheel_bank"
+    }
+  ],
+  "contentHash": "0cbddedda5b6c9086dd89f14dc311769d5988608f31ba39b028982df225fa16b"
+}

@@ -1,0 +1,794 @@
+{
+  "schemaVersion": 1,
+  "status": "ready",
+  "projectId": "prj_7567c1d3-2465-4af9-9491-ec90f5d21561",
+  "projectRevision": 1,
+  "verticalId": "dark_curiosity",
+  "draftArtifactId": "art_8eaa11a4513ce19a78cd146a341e7bc484faa712",
+  "draftHash": "d056def5df87798ed5c6a912263b923465c13b836ca4d293529f647c9ae1577a",
+  "scriptHash": "d056def5df87798ed5c6a912263b923465c13b836ca4d293529f647c9ae1577a",
+  "narrationManifestArtifactId": "art_2d5b43fdc601eb47cc492e0fc96f0ea19601fd67",
+  "narrationManifestHash": "ee9aaf777d439265dab25a11ecbe2fdfd55688e14db74678af217357f18356ae",
+  "audioArtifactId": "art_7f221224854631fb848175e3e33b659b85fbc025",
+  "audioHash": "3c409a924bfd7deb8fe117ddf46a891c75b8e52ad4c2a9919432b34e3b611a4a",
+  "alignmentArtifactId": "art_746122b068bd2203c421c1eda35d4a8a57b76509",
+  "alignmentHash": "ff4dd9547d563f396aff90234faaf28eafcf10bb003b7b7a82717b8617d3ccc0",
+  "fps": 30,
+  "durationFrames": 1068,
+  "captionProfile": "dark_curiosity_word_v1",
+  "profileVersion": "1.1.0",
+  "rendererVersion": "ass_caption_v1",
+  "pacingProfile": null,
+  "pacingPlanHash": null,
+  "semanticBoundaryWordIndices": [],
+  "cues": [
+    {
+      "id": "cue_0001",
+      "beatId": "beat_hook",
+      "startFrame": 0,
+      "endFrame": 36,
+      "lines": [
+        "In 1931,"
+      ],
+      "words": [
+        {
+          "wordIndex": 0,
+          "text": "In",
+          "startFrame": 0,
+          "endFrame": 4
+        },
+        {
+          "wordIndex": 1,
+          "text": "1931,",
+          "startFrame": 4,
+          "endFrame": 36
+        }
+      ]
+    },
+    {
+      "id": "cue_0002",
+      "beatId": "beat_hook",
+      "startFrame": 52,
+      "endFrame": 77,
+      "lines": [
+        "a crew looked out"
+      ],
+      "words": [
+        {
+          "wordIndex": 2,
+          "text": "a",
+          "startFrame": 52,
+          "endFrame": 54
+        },
+        {
+          "wordIndex": 3,
+          "text": "crew",
+          "startFrame": 54,
+          "endFrame": 62
+        },
+        {
+          "wordIndex": 4,
+          "text": "looked",
+          "startFrame": 62,
+          "endFrame": 69
+        },
+        {
+          "wordIndex": 5,
+          "text": "out",
+          "startFrame": 69,
+          "endFrame": 77
+        }
+      ]
+    },
+    {
+      "id": "cue_0003",
+      "beatId": "beat_hook",
+      "startFrame": 77,
+      "endFrame": 120,
+      "lines": [
+        "after a blizzard and found"
+      ],
+      "words": [
+        {
+          "wordIndex": 6,
+          "text": "after",
+          "startFrame": 77,
+          "endFrame": 88
+        },
+        {
+          "wordIndex": 7,
+          "text": "a",
+          "startFrame": 88,
+          "endFrame": 92
+        },
+        {
+          "wordIndex": 8,
+          "text": "blizzard",
+          "startFrame": 92,
+          "endFrame": 100
+        },
+        {
+          "wordIndex": 9,
+          "text": "and",
+          "startFrame": 100,
+          "endFrame": 114
+        },
+        {
+          "wordIndex": 10,
+          "text": "found",
+          "startFrame": 114,
+          "endFrame": 120
+        }
+      ]
+    },
+    {
+      "id": "cue_0004",
+      "beatId": "beat_hook",
+      "startFrame": 120,
+      "endFrame": 148,
+      "lines": [
+        "the ship they had left"
+      ],
+      "words": [
+        {
+          "wordIndex": 11,
+          "text": "the",
+          "startFrame": 120,
+          "endFrame": 126
+        },
+        {
+          "wordIndex": 12,
+          "text": "ship",
+          "startFrame": 126,
+          "endFrame": 132
+        },
+        {
+          "wordIndex": 13,
+          "text": "they",
+          "startFrame": 132,
+          "endFrame": 138
+        },
+        {
+          "wordIndex": 14,
+          "text": "had",
+          "startFrame": 138,
+          "endFrame": 142
+        },
+        {
+          "wordIndex": 15,
+          "text": "left",
+          "startFrame": 142,
+          "endFrame": 148
+        }
+      ]
+    },
+    {
+      "id": "cue_0005",
+      "beatId": "beat_hook",
+      "startFrame": 148,
+      "endFrame": 180,
+      "lines": [
+        "in the ice was gone."
+      ],
+      "words": [
+        {
+          "wordIndex": 16,
+          "text": "in",
+          "startFrame": 148,
+          "endFrame": 155
+        },
+        {
+          "wordIndex": 17,
+          "text": "the",
+          "startFrame": 155,
+          "endFrame": 159
+        },
+        {
+          "wordIndex": 18,
+          "text": "ice",
+          "startFrame": 159,
+          "endFrame": 164
+        },
+        {
+          "wordIndex": 19,
+          "text": "was",
+          "startFrame": 164,
+          "endFrame": 172
+        },
+        {
+          "wordIndex": 20,
+          "text": "gone.",
+          "startFrame": 172,
+          "endFrame": 180
+        }
+      ]
+    },
+    {
+      "id": "cue_0006",
+      "beatId": "beat_context",
+      "startFrame": 199,
+      "endFrame": 231,
+      "lines": [
+        "They assumed it had sunk,"
+      ],
+      "words": [
+        {
+          "wordIndex": 21,
+          "text": "They",
+          "startFrame": 199,
+          "endFrame": 204
+        },
+        {
+          "wordIndex": 22,
+          "text": "assumed",
+          "startFrame": 204,
+          "endFrame": 216
+        },
+        {
+          "wordIndex": 23,
+          "text": "it",
+          "startFrame": 216,
+          "endFrame": 221
+        },
+        {
+          "wordIndex": 24,
+          "text": "had",
+          "startFrame": 221,
+          "endFrame": 225
+        },
+        {
+          "wordIndex": 25,
+          "text": "sunk,",
+          "startFrame": 225,
+          "endFrame": 231
+        }
+      ]
+    },
+    {
+      "id": "cue_0007",
+      "beatId": "beat_context",
+      "startFrame": 246,
+      "endFrame": 285,
+      "lines": [
+        "but local hunters soon"
+      ],
+      "words": [
+        {
+          "wordIndex": 26,
+          "text": "but",
+          "startFrame": 246,
+          "endFrame": 251
+        },
+        {
+          "wordIndex": 27,
+          "text": "local",
+          "startFrame": 251,
+          "endFrame": 260
+        },
+        {
+          "wordIndex": 28,
+          "text": "hunters",
+          "startFrame": 260,
+          "endFrame": 271
+        },
+        {
+          "wordIndex": 29,
+          "text": "soon",
+          "startFrame": 271,
+          "endFrame": 285
+        }
+      ]
+    },
+    {
+      "id": "cue_0008",
+      "beatId": "beat_context",
+      "startFrame": 285,
+      "endFrame": 330,
+      "lines": [
+        "spotted the",
+        "abandoned steamer"
+      ],
+      "words": [
+        {
+          "wordIndex": 30,
+          "text": "spotted",
+          "startFrame": 285,
+          "endFrame": 299
+        },
+        {
+          "wordIndex": 31,
+          "text": "the",
+          "startFrame": 299,
+          "endFrame": 304
+        },
+        {
+          "wordIndex": 32,
+          "text": "abandoned",
+          "startFrame": 304,
+          "endFrame": 315
+        },
+        {
+          "wordIndex": 33,
+          "text": "steamer",
+          "startFrame": 315,
+          "endFrame": 330
+        }
+      ]
+    },
+    {
+      "id": "cue_0009",
+      "beatId": "beat_context",
+      "startFrame": 330,
+      "endFrame": 375,
+      "lines": [
+        "near the Alaskan coast."
+      ],
+      "words": [
+        {
+          "wordIndex": 34,
+          "text": "near",
+          "startFrame": 330,
+          "endFrame": 340
+        },
+        {
+          "wordIndex": 35,
+          "text": "the",
+          "startFrame": 340,
+          "endFrame": 345
+        },
+        {
+          "wordIndex": 36,
+          "text": "Alaskan",
+          "startFrame": 345,
+          "endFrame": 361
+        },
+        {
+          "wordIndex": 37,
+          "text": "coast.",
+          "startFrame": 361,
+          "endFrame": 375
+        }
+      ]
+    },
+    {
+      "id": "cue_0010",
+      "beatId": "beat_evidence",
+      "startFrame": 388,
+      "endFrame": 428,
+      "lines": [
+        "Over the following years,"
+      ],
+      "words": [
+        {
+          "wordIndex": 38,
+          "text": "Over",
+          "startFrame": 388,
+          "endFrame": 395
+        },
+        {
+          "wordIndex": 39,
+          "text": "the",
+          "startFrame": 395,
+          "endFrame": 399
+        },
+        {
+          "wordIndex": 40,
+          "text": "following",
+          "startFrame": 399,
+          "endFrame": 411
+        },
+        {
+          "wordIndex": 41,
+          "text": "years,",
+          "startFrame": 411,
+          "endFrame": 428
+        }
+      ]
+    },
+    {
+      "id": "cue_0011",
+      "beatId": "beat_evidence",
+      "startFrame": 436,
+      "endFrame": 482,
+      "lines": [
+        "people saw and sometimes"
+      ],
+      "words": [
+        {
+          "wordIndex": 42,
+          "text": "people",
+          "startFrame": 436,
+          "endFrame": 443
+        },
+        {
+          "wordIndex": 43,
+          "text": "saw",
+          "startFrame": 443,
+          "endFrame": 453
+        },
+        {
+          "wordIndex": 44,
+          "text": "and",
+          "startFrame": 453,
+          "endFrame": 464
+        },
+        {
+          "wordIndex": 45,
+          "text": "sometimes",
+          "startFrame": 464,
+          "endFrame": 482
+        }
+      ]
+    },
+    {
+      "id": "cue_0012",
+      "beatId": "beat_evidence",
+      "startFrame": 482,
+      "endFrame": 509,
+      "lines": [
+        "boarded the ship"
+      ],
+      "words": [
+        {
+          "wordIndex": 46,
+          "text": "boarded",
+          "startFrame": 482,
+          "endFrame": 500
+        },
+        {
+          "wordIndex": 47,
+          "text": "the",
+          "startFrame": 500,
+          "endFrame": 504
+        },
+        {
+          "wordIndex": 48,
+          "text": "ship",
+          "startFrame": 504,
+          "endFrame": 509
+        }
+      ]
+    },
+    {
+      "id": "cue_0013",
+      "beatId": "beat_evidence",
+      "startFrame": 509,
+      "endFrame": 551,
+      "lines": [
+        "without a crew as it"
+      ],
+      "words": [
+        {
+          "wordIndex": 49,
+          "text": "without",
+          "startFrame": 509,
+          "endFrame": 517
+        },
+        {
+          "wordIndex": 50,
+          "text": "a",
+          "startFrame": 517,
+          "endFrame": 521
+        },
+        {
+          "wordIndex": 51,
+          "text": "crew",
+          "startFrame": 521,
+          "endFrame": 529
+        },
+        {
+          "wordIndex": 52,
+          "text": "as",
+          "startFrame": 529,
+          "endFrame": 548
+        },
+        {
+          "wordIndex": 53,
+          "text": "it",
+          "startFrame": 548,
+          "endFrame": 551
+        }
+      ]
+    },
+    {
+      "id": "cue_0014",
+      "beatId": "beat_evidence",
+      "startFrame": 551,
+      "endFrame": 598,
+      "lines": [
+        "drifted with",
+        "Arctic pack ice."
+      ],
+      "words": [
+        {
+          "wordIndex": 54,
+          "text": "drifted",
+          "startFrame": 551,
+          "endFrame": 563
+        },
+        {
+          "wordIndex": 55,
+          "text": "with",
+          "startFrame": 563,
+          "endFrame": 570
+        },
+        {
+          "wordIndex": 56,
+          "text": "Arctic",
+          "startFrame": 570,
+          "endFrame": 579
+        },
+        {
+          "wordIndex": 57,
+          "text": "pack",
+          "startFrame": 579,
+          "endFrame": 587
+        },
+        {
+          "wordIndex": 58,
+          "text": "ice.",
+          "startFrame": 587,
+          "endFrame": 598
+        }
+      ]
+    },
+    {
+      "id": "cue_0015",
+      "beatId": "beat_turn",
+      "startFrame": 616,
+      "endFrame": 662,
+      "lines": [
+        "The latest company archive"
+      ],
+      "words": [
+        {
+          "wordIndex": 59,
+          "text": "The",
+          "startFrame": 616,
+          "endFrame": 623
+        },
+        {
+          "wordIndex": 60,
+          "text": "latest",
+          "startFrame": 623,
+          "endFrame": 632
+        },
+        {
+          "wordIndex": 61,
+          "text": "company",
+          "startFrame": 632,
+          "endFrame": 645
+        },
+        {
+          "wordIndex": 62,
+          "text": "archive",
+          "startFrame": 645,
+          "endFrame": 662
+        }
+      ]
+    },
+    {
+      "id": "cue_0016",
+      "beatId": "beat_turn",
+      "startFrame": 662,
+      "endFrame": 727,
+      "lines": [
+        "record dates to 1969,"
+      ],
+      "words": [
+        {
+          "wordIndex": 63,
+          "text": "record",
+          "startFrame": 662,
+          "endFrame": 675
+        },
+        {
+          "wordIndex": 64,
+          "text": "dates",
+          "startFrame": 675,
+          "endFrame": 686
+        },
+        {
+          "wordIndex": 65,
+          "text": "to",
+          "startFrame": 686,
+          "endFrame": 694
+        },
+        {
+          "wordIndex": 66,
+          "text": "1969,",
+          "startFrame": 694,
+          "endFrame": 727
+        }
+      ]
+    },
+    {
+      "id": "cue_0017",
+      "beatId": "beat_turn",
+      "startFrame": 749,
+      "endFrame": 803,
+      "lines": [
+        "decades after the",
+        "ship was abandoned."
+      ],
+      "words": [
+        {
+          "wordIndex": 67,
+          "text": "decades",
+          "startFrame": 749,
+          "endFrame": 759
+        },
+        {
+          "wordIndex": 68,
+          "text": "after",
+          "startFrame": 759,
+          "endFrame": 775
+        },
+        {
+          "wordIndex": 69,
+          "text": "the",
+          "startFrame": 775,
+          "endFrame": 780
+        },
+        {
+          "wordIndex": 70,
+          "text": "ship",
+          "startFrame": 780,
+          "endFrame": 786
+        },
+        {
+          "wordIndex": 71,
+          "text": "was",
+          "startFrame": 786,
+          "endFrame": 792
+        },
+        {
+          "wordIndex": 72,
+          "text": "abandoned.",
+          "startFrame": 792,
+          "endFrame": 803
+        }
+      ]
+    },
+    {
+      "id": "cue_0018",
+      "beatId": "beat_payoff",
+      "startFrame": 818,
+      "endFrame": 899,
+      "lines": [
+        "The case documents an",
+        "extraordinary drift,"
+      ],
+      "words": [
+        {
+          "wordIndex": 73,
+          "text": "The",
+          "startFrame": 818,
+          "endFrame": 831
+        },
+        {
+          "wordIndex": 74,
+          "text": "case",
+          "startFrame": 831,
+          "endFrame": 837
+        },
+        {
+          "wordIndex": 75,
+          "text": "documents",
+          "startFrame": 837,
+          "endFrame": 853
+        },
+        {
+          "wordIndex": 76,
+          "text": "an",
+          "startFrame": 853,
+          "endFrame": 861
+        },
+        {
+          "wordIndex": 77,
+          "text": "extraordinary",
+          "startFrame": 861,
+          "endFrame": 883
+        },
+        {
+          "wordIndex": 78,
+          "text": "drift,",
+          "startFrame": 883,
+          "endFrame": 899
+        }
+      ]
+    },
+    {
+      "id": "cue_0019",
+      "beatId": "beat_payoff",
+      "startFrame": 910,
+      "endFrame": 959,
+      "lines": [
+        "not a supernatural",
+        "ghost ship."
+      ],
+      "words": [
+        {
+          "wordIndex": 79,
+          "text": "not",
+          "startFrame": 910,
+          "endFrame": 915
+        },
+        {
+          "wordIndex": 80,
+          "text": "a",
+          "startFrame": 915,
+          "endFrame": 920
+        },
+        {
+          "wordIndex": 81,
+          "text": "supernatural",
+          "startFrame": 920,
+          "endFrame": 936
+        },
+        {
+          "wordIndex": 82,
+          "text": "ghost",
+          "startFrame": 936,
+          "endFrame": 948
+        },
+        {
+          "wordIndex": 83,
+          "text": "ship.",
+          "startFrame": 948,
+          "endFrame": 959
+        }
+      ]
+    },
+    {
+      "id": "cue_0020",
+      "beatId": "beat_payoff",
+      "startFrame": 973,
+      "endFrame": 1031,
+      "lines": [
+        "Its final fate",
+        "remains unknown."
+      ],
+      "words": [
+        {
+          "wordIndex": 84,
+          "text": "Its",
+          "startFrame": 973,
+          "endFrame": 982
+        },
+        {
+          "wordIndex": 85,
+          "text": "final",
+          "startFrame": 982,
+          "endFrame": 992
+        },
+        {
+          "wordIndex": 86,
+          "text": "fate",
+          "startFrame": 992,
+          "endFrame": 1002
+        },
+        {
+          "wordIndex": 87,
+          "text": "remains",
+          "startFrame": 1002,
+          "endFrame": 1016
+        },
+        {
+          "wordIndex": 88,
+          "text": "unknown.",
+          "startFrame": 1016,
+          "endFrame": 1031
+        }
+      ]
+    }
+  ],
+  "safeZone": {
+    "left": 0.08,
+    "right": 0.92,
+    "top": 0.58,
+    "bottom": 0.86,
+    "maxLines": 2
+  },
+  "contentHash": "b3a45f63756ab650a77c839fc73fd9aabb7c195d1bc76900ae509b40b3e8c7ef"
+}

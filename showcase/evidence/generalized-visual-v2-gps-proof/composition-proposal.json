@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 2,
+  "profile": "generalized_visual_program_proposal_v2",
+  "bindings": {
+    "semanticEventGraphHash": "1b716915a3e8a07c021eadf116242e7458ba01acdf650f5ffed2cec27875b7c7",
+    "timingContextHash": "c0b64a06041985eca50ff1499d6019188ebd18c8ea5ccd904aafac8f4d01249c",
+    "draftHash": "134ce9505f0ffdb066541dbd1307c201309b489378fa29012777bdab12639837",
+    "sourceRevisionHash": "eaf5966c3c358268d38377fe89734d0463ed4551ce299a34868a9bc0c63425c8"
+  },
+  "styleSpecId": "educational_line_art_reference_v1",
+  "scenes": [
+    {
+      "id": "visual_scene_00",
+      "entityIds": [
+        "gps_satellite",
+        "gps_week_value",
+        "gps_receiver",
+        "gps_maximum"
+      ],
+      "propositionIds": [
+        "prop_gps_signal_value",
+        "prop_gps_store_bits",
+        "prop_gps_limit",
+        "prop_gps_no_next"
+      ],
+      "layoutIntent": "directed_flow",
+      "focusEntityId": "gps_week_value"
+    },
+    {
+      "id": "visual_scene_01",
+      "entityIds": [
+        "gps_maximum",
+        "gps_zero",
+        "gps_receiver",
+        "gps_wrong_date",
+        "gps_real_time"
+      ],
+      "propositionIds": [
+        "prop_gps_rollover",
+        "prop_gps_old_mapping",
+        "prop_gps_backward"
+      ],
+      "layoutIntent": "timeline_track",
+      "focusEntityId": "gps_wrong_date"
+    },
+    {
+      "id": "visual_scene_02",
+      "entityIds": [
+        "gps_real_time",
+        "gps_correct_date",
+        "gps_patch",
+        "gps_receiver",
+        "gps_zero"
+      ],
+      "propositionIds": [
+        "prop_gps_time_continues",
+        "prop_gps_patch",
+        "prop_gps_correct_mapping",
+        "prop_gps_payoff"
+      ],
+      "layoutIntent": "cycle_orbit",
+      "focusEntityId": "gps_receiver"
+    }
+  ],
+  "contentHash": "4a5c99cfa895e84319630d5db721cc1835df5c6d1f4934a652203dcc66c60f3a"
+}

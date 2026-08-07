@@ -1,0 +1,355 @@
+{
+  "schemaVersion": 1,
+  "fps": 30,
+  "durationFrames": 537,
+  "alignmentHash": "b4f0fbe94898747a0ba25d939da64a3e14d24f9c5a657e216c5dd19ce6f6196a",
+  "draftHash": "e739545bbab1d7d2d6cbcf14910997a79294e658fd6bdc7aea274aeb59dc7912",
+  "words": [
+    {
+      "index": 0,
+      "text": "A",
+      "startFrame": 0,
+      "endFrame": 2
+    },
+    {
+      "index": 1,
+      "text": "six-digit",
+      "startFrame": 2,
+      "endFrame": 18
+    },
+    {
+      "index": 2,
+      "text": "odometer",
+      "startFrame": 18,
+      "endFrame": 34
+    },
+    {
+      "index": 3,
+      "text": "has",
+      "startFrame": 34,
+      "endFrame": 41
+    },
+    {
+      "index": 4,
+      "text": "six",
+      "startFrame": 41,
+      "endFrame": 47
+    },
+    {
+      "index": 5,
+      "text": "number",
+      "startFrame": 47,
+      "endFrame": 59
+    },
+    {
+      "index": 6,
+      "text": "wheels.",
+      "startFrame": 59,
+      "endFrame": 72
+    },
+    {
+      "index": 7,
+      "text": "Each",
+      "startFrame": 81,
+      "endFrame": 88
+    },
+    {
+      "index": 8,
+      "text": "wheel",
+      "startFrame": 88,
+      "endFrame": 97
+    },
+    {
+      "index": 9,
+      "text": "carries",
+      "startFrame": 97,
+      "endFrame": 109
+    },
+    {
+      "index": 10,
+      "text": "into",
+      "startFrame": 109,
+      "endFrame": 117
+    },
+    {
+      "index": 11,
+      "text": "the",
+      "startFrame": 117,
+      "endFrame": 123
+    },
+    {
+      "index": 12,
+      "text": "next",
+      "startFrame": 123,
+      "endFrame": 130
+    },
+    {
+      "index": 13,
+      "text": "after",
+      "startFrame": 130,
+      "endFrame": 139
+    },
+    {
+      "index": 14,
+      "text": "nine.",
+      "startFrame": 139,
+      "endFrame": 147
+    },
+    {
+      "index": 15,
+      "text": "At",
+      "startFrame": 157,
+      "endFrame": 161
+    },
+    {
+      "index": 16,
+      "text": "the",
+      "startFrame": 161,
+      "endFrame": 168
+    },
+    {
+      "index": 17,
+      "text": "maximum,",
+      "startFrame": 168,
+      "endFrame": 183
+    },
+    {
+      "index": 18,
+      "text": "all",
+      "startFrame": 183,
+      "endFrame": 190
+    },
+    {
+      "index": 19,
+      "text": "six",
+      "startFrame": 190,
+      "endFrame": 197
+    },
+    {
+      "index": 20,
+      "text": "wheels",
+      "startFrame": 197,
+      "endFrame": 210
+    },
+    {
+      "index": 21,
+      "text": "show",
+      "startFrame": 210,
+      "endFrame": 219
+    },
+    {
+      "index": 22,
+      "text": "nine.",
+      "startFrame": 219,
+      "endFrame": 228
+    },
+    {
+      "index": 23,
+      "text": "One",
+      "startFrame": 238,
+      "endFrame": 243
+    },
+    {
+      "index": 24,
+      "text": "more",
+      "startFrame": 243,
+      "endFrame": 251
+    },
+    {
+      "index": 25,
+      "text": "mile",
+      "startFrame": 251,
+      "endFrame": 259
+    },
+    {
+      "index": 26,
+      "text": "carries",
+      "startFrame": 259,
+      "endFrame": 271
+    },
+    {
+      "index": 27,
+      "text": "through",
+      "startFrame": 271,
+      "endFrame": 284
+    },
+    {
+      "index": 28,
+      "text": "all",
+      "startFrame": 284,
+      "endFrame": 290
+    },
+    {
+      "index": 29,
+      "text": "six",
+      "startFrame": 290,
+      "endFrame": 296
+    },
+    {
+      "index": 30,
+      "text": "wheels.",
+      "startFrame": 296,
+      "endFrame": 307
+    },
+    {
+      "index": 31,
+      "text": "The",
+      "startFrame": 318,
+      "endFrame": 324
+    },
+    {
+      "index": 32,
+      "text": "display",
+      "startFrame": 324,
+      "endFrame": 339
+    },
+    {
+      "index": 33,
+      "text": "returns",
+      "startFrame": 339,
+      "endFrame": 353
+    },
+    {
+      "index": 34,
+      "text": "to",
+      "startFrame": 353,
+      "endFrame": 358
+    },
+    {
+      "index": 35,
+      "text": "zero.",
+      "startFrame": 358,
+      "endFrame": 367
+    },
+    {
+      "index": 36,
+      "text": "The",
+      "startFrame": 377,
+      "endFrame": 383
+    },
+    {
+      "index": 37,
+      "text": "car",
+      "startFrame": 383,
+      "endFrame": 389
+    },
+    {
+      "index": 38,
+      "text": "did",
+      "startFrame": 389,
+      "endFrame": 396
+    },
+    {
+      "index": 39,
+      "text": "not",
+      "startFrame": 396,
+      "endFrame": 402
+    },
+    {
+      "index": 40,
+      "text": "become",
+      "startFrame": 402,
+      "endFrame": 414
+    },
+    {
+      "index": 41,
+      "text": "new.",
+      "startFrame": 414,
+      "endFrame": 421
+    },
+    {
+      "index": 42,
+      "text": "The",
+      "startFrame": 431,
+      "endFrame": 437
+    },
+    {
+      "index": 43,
+      "text": "counter",
+      "startFrame": 437,
+      "endFrame": 451
+    },
+    {
+      "index": 44,
+      "text": "simply",
+      "startFrame": 451,
+      "endFrame": 462
+    },
+    {
+      "index": 45,
+      "text": "ran",
+      "startFrame": 462,
+      "endFrame": 469
+    },
+    {
+      "index": 46,
+      "text": "out",
+      "startFrame": 469,
+      "endFrame": 475
+    },
+    {
+      "index": 47,
+      "text": "of",
+      "startFrame": 475,
+      "endFrame": 480
+    },
+    {
+      "index": 48,
+      "text": "digits.",
+      "startFrame": 480,
+      "endFrame": 492
+    }
+  ],
+  "beats": [
+    {
+      "beatId": "odometer_six_wheels",
+      "wordStartIndex": 0,
+      "wordEndIndex": 7,
+      "startFrame": 0,
+      "endFrame": 72
+    },
+    {
+      "beatId": "odometer_carry",
+      "wordStartIndex": 7,
+      "wordEndIndex": 15,
+      "startFrame": 81,
+      "endFrame": 147
+    },
+    {
+      "beatId": "odometer_last_value",
+      "wordStartIndex": 15,
+      "wordEndIndex": 23,
+      "startFrame": 157,
+      "endFrame": 228
+    },
+    {
+      "beatId": "odometer_one_more",
+      "wordStartIndex": 23,
+      "wordEndIndex": 31,
+      "startFrame": 238,
+      "endFrame": 307
+    },
+    {
+      "beatId": "odometer_zero",
+      "wordStartIndex": 31,
+      "wordEndIndex": 36,
+      "startFrame": 318,
+      "endFrame": 367
+    },
+    {
+      "beatId": "odometer_same_car",
+      "wordStartIndex": 36,
+      "wordEndIndex": 42,
+      "startFrame": 377,
+      "endFrame": 421
+    },
+    {
+      "beatId": "odometer_payoff",
+      "wordStartIndex": 42,
+      "wordEndIndex": 49,
+      "startFrame": 431,
+      "endFrame": 492
+    }
+  ],
+  "contentHash": "3ffaf0c85564eccd5f912e5b205502079059a28b3bb2a9c63dfcb76bd543f599"
+}

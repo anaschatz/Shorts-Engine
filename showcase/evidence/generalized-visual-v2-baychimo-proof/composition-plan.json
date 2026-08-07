@@ -1,0 +1,1744 @@
+{
+  "schemaVersion": 2,
+  "profile": "generalized_visual_program_v2",
+  "profileVersion": "2.0.0",
+  "bindings": {
+    "proposalHash": "60b48e16c91094d1eca97e227df2de1ba410f59436cb1c250c8b9beeb5333dd2",
+    "semanticEventGraphHash": "0f999495fc4ebd07f652b9ed5af7e49976cfe23e7819a12c1a02968bf8ee3bef",
+    "timingContextHash": "5ef4f3c0ef568f34bc257969fe37f81689e1eb2196fb4f8aa5a901bbea35a626",
+    "draftHash": "d056def5df87798ed5c6a912263b923465c13b836ca4d293529f647c9ae1577a",
+    "sourceRevisionHash": "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4"
+  },
+  "presentation": {
+    "title": "THE SHIP THE ARCTIC WOULD NOT KEEP"
+  },
+  "style": {
+    "specId": "educational_line_art_reference_v1",
+    "specVersion": "1.0.0"
+  },
+  "trust": {
+    "mode": "calibration_trusted",
+    "disclosure": "local_llm_generated_nonproduction"
+  },
+  "duration": {
+    "fps": 30,
+    "totalFrames": 1068
+  },
+  "scenes": [
+    {
+      "id": "visual_scene_00",
+      "entityIds": [
+        "baychimo",
+        "year_1931",
+        "baychimo_crew",
+        "blizzard",
+        "arctic_ice",
+        "sinking_assumption"
+      ],
+      "propositionIds": [
+        "baychimo_hook_year",
+        "baychimo_hook_crew_observation",
+        "baychimo_hook_observed_absence",
+        "baychimo_context_sinking_assumption"
+      ],
+      "layoutIntent": "directed_flow",
+      "focusEntityId": "baychimo_crew",
+      "startFrame": 0,
+      "endFrame": 246,
+      "readabilityHold": {
+        "startFrame": 238,
+        "endFrame": 246
+      },
+      "entities": [
+        {
+          "id": "baychimo",
+          "kind": "steamship",
+          "visualSubjectKind": "vessel",
+          "label": "Baychimo",
+          "persistent": true,
+          "claimIds": [
+            "claim_disappearance",
+            "claim_drift",
+            "claim_last-sighting",
+            "claim_reappearance",
+            "claim_verdict"
+          ]
+        },
+        {
+          "id": "year_1931",
+          "kind": "calendar_year",
+          "visualSubjectKind": "date",
+          "label": "1931",
+          "persistent": false,
+          "claimIds": [
+            "claim_disappearance"
+          ]
+        },
+        {
+          "id": "baychimo_crew",
+          "kind": "crew_group",
+          "visualSubjectKind": "observer",
+          "label": "the crew",
+          "persistent": false,
+          "claimIds": [
+            "claim_disappearance",
+            "claim_reappearance"
+          ]
+        },
+        {
+          "id": "blizzard",
+          "kind": "weather_event",
+          "visualSubjectKind": "environment",
+          "label": "blizzard",
+          "persistent": false,
+          "claimIds": [
+            "claim_disappearance"
+          ]
+        },
+        {
+          "id": "arctic_ice",
+          "kind": "ice_environment",
+          "visualSubjectKind": "environment",
+          "label": "Arctic ice",
+          "persistent": true,
+          "claimIds": [
+            "claim_disappearance",
+            "claim_drift"
+          ]
+        },
+        {
+          "id": "sinking_assumption",
+          "kind": "hypothesis",
+          "visualSubjectKind": "hypothesis",
+          "label": "the ship had sunk",
+          "persistent": false,
+          "claimIds": [
+            "claim_reappearance"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "id": "relation_0_00",
+          "propositionId": "baychimo_hook_year",
+          "fromEntityId": "baychimo",
+          "toEntityId": "year_1931",
+          "predicate": "event_occurred_in",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 0
+        },
+        {
+          "id": "relation_0_01",
+          "propositionId": "baychimo_hook_crew_observation",
+          "fromEntityId": "baychimo_crew",
+          "toEntityId": "blizzard",
+          "predicate": "looked_out_after",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 1
+        },
+        {
+          "id": "relation_0_02",
+          "propositionId": "baychimo_hook_observed_absence",
+          "fromEntityId": "baychimo_crew",
+          "toEntityId": "baychimo",
+          "predicate": "found_ship_absent_from_last_seen_ice",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 2
+        },
+        {
+          "id": "relation_0_03",
+          "propositionId": "baychimo_hook_observed_absence",
+          "fromEntityId": "baychimo_crew",
+          "toEntityId": "arctic_ice",
+          "predicate": "found_ship_absent_from_last_seen_ice",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 3
+        },
+        {
+          "id": "relation_0_04",
+          "propositionId": "baychimo_context_sinking_assumption",
+          "fromEntityId": "baychimo_crew",
+          "toEntityId": "sinking_assumption",
+          "predicate": "assumed",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 4
+        }
+      ],
+      "events": [
+        {
+          "id": "event_0_00",
+          "propositionId": "baychimo_hook_year",
+          "beatId": "beat_hook",
+          "eventKind": "event_context",
+          "predicate": "event_occurred_in",
+          "semanticOperation": "set_year_context",
+          "subjectEntityId": "baychimo",
+          "objectEntityIds": [
+            "year_1931"
+          ],
+          "focusEntityIds": [
+            "year_1931"
+          ],
+          "certainty": "verified",
+          "startFrame": 0,
+          "endFrame": 36,
+          "order": 0
+        },
+        {
+          "id": "event_0_01",
+          "propositionId": "baychimo_hook_crew_observation",
+          "beatId": "beat_hook",
+          "eventKind": "observation_action",
+          "predicate": "looked_out_after",
+          "semanticOperation": "occlude_then_clear_with_blizzard",
+          "subjectEntityId": "baychimo_crew",
+          "objectEntityIds": [
+            "blizzard"
+          ],
+          "focusEntityIds": [
+            "baychimo_crew",
+            "blizzard",
+            "arctic_ice"
+          ],
+          "certainty": "verified",
+          "startFrame": 52,
+          "endFrame": 100,
+          "order": 1
+        },
+        {
+          "id": "event_0_02",
+          "propositionId": "baychimo_hook_observed_absence",
+          "beatId": "beat_hook",
+          "eventKind": "observed_state_change",
+          "predicate": "found_ship_absent_from_last_seen_ice",
+          "semanticOperation": "reveal_empty_last_seen_position",
+          "subjectEntityId": "baychimo_crew",
+          "objectEntityIds": [
+            "baychimo",
+            "arctic_ice"
+          ],
+          "focusEntityIds": [
+            "baychimo",
+            "arctic_ice",
+            "baychimo_crew"
+          ],
+          "certainty": "verified",
+          "startFrame": 100,
+          "endFrame": 180,
+          "order": 2
+        },
+        {
+          "id": "event_0_03",
+          "propositionId": "baychimo_context_sinking_assumption",
+          "beatId": "beat_context",
+          "eventKind": "attributed_hypothesis",
+          "predicate": "assumed",
+          "semanticOperation": "mark_sinking_as_assumption",
+          "subjectEntityId": "baychimo_crew",
+          "objectEntityIds": [
+            "sinking_assumption"
+          ],
+          "focusEntityIds": [
+            "baychimo_crew",
+            "sinking_assumption"
+          ],
+          "certainty": "verified",
+          "startFrame": 199,
+          "endFrame": 231,
+          "order": 3
+        }
+      ],
+      "layout": {
+        "profileId": "deterministic_semantic_graph_layout_v2",
+        "profileVersion": "2.0.0",
+        "canvas": {
+          "width": 1080,
+          "height": 1920
+        },
+        "regions": {
+          "visualRoi": {
+            "x": 72,
+            "y": 276,
+            "width": 936,
+            "height": 1068
+          },
+          "captionLane": {
+            "x": 0,
+            "y": 1416,
+            "width": 1080,
+            "height": 504
+          }
+        },
+        "nodes": [
+          {
+            "entityId": "baychimo",
+            "order": 0,
+            "role": "participant",
+            "bounds": {
+              "x": 90,
+              "y": 340,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "year_1931",
+            "order": 1,
+            "role": "participant",
+            "bounds": {
+              "x": 322,
+              "y": 340,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "baychimo_crew",
+            "order": 2,
+            "role": "focus",
+            "bounds": {
+              "x": 554,
+              "y": 340,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "blizzard",
+            "order": 3,
+            "role": "participant",
+            "bounds": {
+              "x": 786,
+              "y": 340,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "arctic_ice",
+            "order": 4,
+            "role": "participant",
+            "bounds": {
+              "x": 90,
+              "y": 1148,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "sinking_assumption",
+            "order": 5,
+            "role": "participant",
+            "bounds": {
+              "x": 786,
+              "y": 1148,
+              "width": 204,
+              "height": 132
+            }
+          }
+        ],
+        "edges": [
+          {
+            "relationId": "relation_0_00",
+            "fromEntityId": "baychimo",
+            "toEntityId": "year_1931",
+            "kind": "line",
+            "points": [
+              {
+                "x": 192,
+                "y": 406
+              },
+              {
+                "x": 424,
+                "y": 406
+              }
+            ]
+          },
+          {
+            "relationId": "relation_0_01",
+            "fromEntityId": "baychimo_crew",
+            "toEntityId": "blizzard",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 656,
+                "y": 406
+              },
+              {
+                "x": 736,
+                "y": 442
+              },
+              {
+                "x": 888,
+                "y": 406
+              }
+            ]
+          },
+          {
+            "relationId": "relation_0_02",
+            "fromEntityId": "baychimo_crew",
+            "toEntityId": "baychimo",
+            "kind": "line",
+            "points": [
+              {
+                "x": 656,
+                "y": 406
+              },
+              {
+                "x": 192,
+                "y": 406
+              }
+            ]
+          },
+          {
+            "relationId": "relation_0_03",
+            "fromEntityId": "baychimo_crew",
+            "toEntityId": "arctic_ice",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 656,
+                "y": 406
+              },
+              {
+                "x": 388,
+                "y": 846
+              },
+              {
+                "x": 192,
+                "y": 1214
+              }
+            ]
+          },
+          {
+            "relationId": "relation_0_04",
+            "fromEntityId": "baychimo_crew",
+            "toEntityId": "sinking_assumption",
+            "kind": "line",
+            "points": [
+              {
+                "x": 656,
+                "y": 406
+              },
+              {
+                "x": 888,
+                "y": 1214
+              }
+            ]
+          }
+        ],
+        "constraints": {
+          "maximumSimultaneousMotion": 2,
+          "minimumSettledHoldFrames": 8
+        }
+      },
+      "tracks": [
+        {
+          "id": "track_0_00",
+          "targetKind": "relation",
+          "targetId": "relation_0_00",
+          "operation": "draw",
+          "startFrame": 0,
+          "endFrame": 18,
+          "easing": "ease_out_cubic",
+          "order": 0
+        },
+        {
+          "id": "track_0_01",
+          "targetKind": "entity",
+          "targetId": "year_1931",
+          "operation": "focus",
+          "startFrame": 18,
+          "endFrame": 36,
+          "easing": "ease_out_cubic",
+          "order": 1
+        },
+        {
+          "id": "track_0_02",
+          "targetKind": "relation",
+          "targetId": "relation_0_01",
+          "operation": "draw",
+          "startFrame": 52,
+          "endFrame": 76,
+          "easing": "ease_out_cubic",
+          "order": 2
+        },
+        {
+          "id": "track_0_03",
+          "targetKind": "entity",
+          "targetId": "baychimo_crew",
+          "operation": "focus",
+          "startFrame": 76,
+          "endFrame": 100,
+          "easing": "ease_out_cubic",
+          "order": 3
+        },
+        {
+          "id": "track_0_04",
+          "targetKind": "relation",
+          "targetId": "relation_0_02",
+          "operation": "draw",
+          "startFrame": 100,
+          "endFrame": 180,
+          "easing": "ease_out_cubic",
+          "order": 4
+        },
+        {
+          "id": "track_0_05",
+          "targetKind": "entity",
+          "targetId": "baychimo",
+          "operation": "occlude_to_absent",
+          "startFrame": 100,
+          "endFrame": 180,
+          "easing": "ease_out_cubic",
+          "order": 5
+        },
+        {
+          "id": "track_0_06",
+          "targetKind": "relation",
+          "targetId": "relation_0_04",
+          "operation": "draw",
+          "startFrame": 199,
+          "endFrame": 215,
+          "easing": "ease_out_cubic",
+          "order": 6
+        },
+        {
+          "id": "track_0_07",
+          "targetKind": "entity",
+          "targetId": "baychimo_crew",
+          "operation": "focus",
+          "startFrame": 215,
+          "endFrame": 231,
+          "easing": "ease_out_cubic",
+          "order": 7
+        }
+      ],
+      "compositionFingerprint": "a0321b1b7d001e1c37abcccdeea1d3d47035ba3b5ff1ff938dac64c209475b7b"
+    },
+    {
+      "id": "visual_scene_01",
+      "entityIds": [
+        "local_hunters",
+        "baychimo",
+        "alaskan_coast",
+        "sinking_assumption",
+        "later_observers"
+      ],
+      "propositionIds": [
+        "baychimo_context_hunter_sighting",
+        "baychimo_evidence_later_years",
+        "baychimo_evidence_sightings",
+        "baychimo_evidence_boardings"
+      ],
+      "layoutIntent": "timeline_track",
+      "focusEntityId": "baychimo",
+      "startFrame": 246,
+      "endFrame": 509,
+      "readabilityHold": {
+        "startFrame": 501,
+        "endFrame": 509
+      },
+      "entities": [
+        {
+          "id": "local_hunters",
+          "kind": "observer_group",
+          "visualSubjectKind": "observer",
+          "label": "local hunters",
+          "persistent": false,
+          "claimIds": [
+            "claim_reappearance"
+          ]
+        },
+        {
+          "id": "baychimo",
+          "kind": "steamship",
+          "visualSubjectKind": "vessel",
+          "label": "Baychimo",
+          "persistent": true,
+          "claimIds": [
+            "claim_disappearance",
+            "claim_drift",
+            "claim_last-sighting",
+            "claim_reappearance",
+            "claim_verdict"
+          ]
+        },
+        {
+          "id": "alaskan_coast",
+          "kind": "coastal_region",
+          "visualSubjectKind": "route",
+          "label": "the Alaskan coast",
+          "persistent": false,
+          "claimIds": [
+            "claim_reappearance"
+          ]
+        },
+        {
+          "id": "sinking_assumption",
+          "kind": "hypothesis",
+          "visualSubjectKind": "hypothesis",
+          "label": "the ship had sunk",
+          "persistent": false,
+          "claimIds": [
+            "claim_reappearance"
+          ]
+        },
+        {
+          "id": "later_observers",
+          "kind": "observer_group",
+          "visualSubjectKind": "observer",
+          "label": "People",
+          "persistent": false,
+          "claimIds": [
+            "claim_drift"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "id": "relation_1_00",
+          "propositionId": "baychimo_context_hunter_sighting",
+          "fromEntityId": "local_hunters",
+          "toEntityId": "baychimo",
+          "predicate": "spotted_abandoned_ship_near",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 0
+        },
+        {
+          "id": "relation_1_01",
+          "propositionId": "baychimo_context_hunter_sighting",
+          "fromEntityId": "local_hunters",
+          "toEntityId": "alaskan_coast",
+          "predicate": "spotted_abandoned_ship_near",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 1
+        },
+        {
+          "id": "relation_1_02",
+          "propositionId": "baychimo_evidence_sightings",
+          "fromEntityId": "later_observers",
+          "toEntityId": "baychimo",
+          "predicate": "saw",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 2
+        },
+        {
+          "id": "relation_1_03",
+          "propositionId": "baychimo_evidence_boardings",
+          "fromEntityId": "later_observers",
+          "toEntityId": "baychimo",
+          "predicate": "sometimes_boarded",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 3
+        }
+      ],
+      "events": [
+        {
+          "id": "event_1_00",
+          "propositionId": "baychimo_context_hunter_sighting",
+          "beatId": "beat_context",
+          "eventKind": "observation_action",
+          "predicate": "spotted_abandoned_ship_near",
+          "semanticOperation": "replace_assumption_with_documented_sighting",
+          "subjectEntityId": "local_hunters",
+          "objectEntityIds": [
+            "baychimo",
+            "alaskan_coast"
+          ],
+          "focusEntityIds": [
+            "local_hunters",
+            "baychimo",
+            "alaskan_coast",
+            "sinking_assumption"
+          ],
+          "certainty": "verified",
+          "startFrame": 246,
+          "endFrame": 375,
+          "order": 0
+        },
+        {
+          "id": "event_1_01",
+          "propositionId": "baychimo_evidence_later_years",
+          "beatId": "beat_evidence",
+          "eventKind": "state_transition",
+          "predicate": "continued_into_following_years",
+          "semanticOperation": "advance_undated_later_years",
+          "subjectEntityId": "baychimo",
+          "objectEntityIds": [],
+          "focusEntityIds": [
+            "baychimo"
+          ],
+          "certainty": "verified",
+          "startFrame": 388,
+          "endFrame": 428,
+          "order": 1
+        },
+        {
+          "id": "event_1_02",
+          "propositionId": "baychimo_evidence_sightings",
+          "beatId": "beat_evidence",
+          "eventKind": "repeated_observation",
+          "predicate": "saw",
+          "semanticOperation": "add_repeated_sighting_markers",
+          "subjectEntityId": "later_observers",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "focusEntityIds": [
+            "later_observers",
+            "baychimo"
+          ],
+          "certainty": "verified",
+          "startFrame": 436,
+          "endFrame": 453,
+          "order": 2
+        },
+        {
+          "id": "event_1_03",
+          "propositionId": "baychimo_evidence_boardings",
+          "beatId": "beat_evidence",
+          "eventKind": "repeated_action",
+          "predicate": "sometimes_boarded",
+          "semanticOperation": "show_boarding_action",
+          "subjectEntityId": "later_observers",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "focusEntityIds": [
+            "later_observers",
+            "baychimo"
+          ],
+          "certainty": "verified",
+          "startFrame": 453,
+          "endFrame": 509,
+          "order": 3
+        }
+      ],
+      "layout": {
+        "profileId": "deterministic_semantic_graph_layout_v2",
+        "profileVersion": "2.0.0",
+        "canvas": {
+          "width": 1080,
+          "height": 1920
+        },
+        "regions": {
+          "visualRoi": {
+            "x": 72,
+            "y": 276,
+            "width": 936,
+            "height": 1068
+          },
+          "captionLane": {
+            "x": 0,
+            "y": 1416,
+            "width": 1080,
+            "height": 504
+          }
+        },
+        "nodes": [
+          {
+            "entityId": "local_hunters",
+            "order": 0,
+            "role": "participant",
+            "bounds": {
+              "x": 98,
+              "y": 754,
+              "width": 124,
+              "height": 112
+            }
+          },
+          {
+            "entityId": "baychimo",
+            "order": 1,
+            "role": "focus",
+            "bounds": {
+              "x": 288,
+              "y": 754,
+              "width": 124,
+              "height": 112
+            }
+          },
+          {
+            "entityId": "alaskan_coast",
+            "order": 2,
+            "role": "participant",
+            "bounds": {
+              "x": 478,
+              "y": 754,
+              "width": 124,
+              "height": 112
+            }
+          },
+          {
+            "entityId": "sinking_assumption",
+            "order": 3,
+            "role": "participant",
+            "bounds": {
+              "x": 668,
+              "y": 754,
+              "width": 124,
+              "height": 112
+            }
+          },
+          {
+            "entityId": "later_observers",
+            "order": 4,
+            "role": "participant",
+            "bounds": {
+              "x": 858,
+              "y": 754,
+              "width": 124,
+              "height": 112
+            }
+          }
+        ],
+        "edges": [
+          {
+            "relationId": "relation_1_00",
+            "fromEntityId": "local_hunters",
+            "toEntityId": "baychimo",
+            "kind": "line",
+            "points": [
+              {
+                "x": 160,
+                "y": 810
+              },
+              {
+                "x": 350,
+                "y": 810
+              }
+            ]
+          },
+          {
+            "relationId": "relation_1_01",
+            "fromEntityId": "local_hunters",
+            "toEntityId": "alaskan_coast",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 160,
+                "y": 810
+              },
+              {
+                "x": 314,
+                "y": 846
+              },
+              {
+                "x": 540,
+                "y": 810
+              }
+            ]
+          },
+          {
+            "relationId": "relation_1_02",
+            "fromEntityId": "later_observers",
+            "toEntityId": "baychimo",
+            "kind": "line",
+            "points": [
+              {
+                "x": 920,
+                "y": 810
+              },
+              {
+                "x": 350,
+                "y": 810
+              }
+            ]
+          },
+          {
+            "relationId": "relation_1_03",
+            "fromEntityId": "later_observers",
+            "toEntityId": "baychimo",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 920,
+                "y": 810
+              },
+              {
+                "x": 677,
+                "y": 768
+              },
+              {
+                "x": 350,
+                "y": 810
+              }
+            ]
+          }
+        ],
+        "constraints": {
+          "maximumSimultaneousMotion": 2,
+          "minimumSettledHoldFrames": 8
+        }
+      },
+      "tracks": [
+        {
+          "id": "track_1_00",
+          "targetKind": "relation",
+          "targetId": "relation_1_00",
+          "operation": "draw",
+          "startFrame": 246,
+          "endFrame": 375,
+          "easing": "ease_out_cubic",
+          "order": 0
+        },
+        {
+          "id": "track_1_01",
+          "targetKind": "entity",
+          "targetId": "sinking_assumption",
+          "operation": "supersede_hypothesis",
+          "startFrame": 246,
+          "endFrame": 375,
+          "easing": "ease_out_cubic",
+          "order": 1
+        },
+        {
+          "id": "track_1_02",
+          "targetKind": "entity",
+          "targetId": "baychimo",
+          "operation": "state_change",
+          "startFrame": 388,
+          "endFrame": 408,
+          "easing": "ease_out_cubic",
+          "order": 2
+        },
+        {
+          "id": "track_1_03",
+          "targetKind": "entity",
+          "targetId": "baychimo",
+          "operation": "focus",
+          "startFrame": 408,
+          "endFrame": 428,
+          "easing": "ease_out_cubic",
+          "order": 3
+        },
+        {
+          "id": "track_1_04",
+          "targetKind": "relation",
+          "targetId": "relation_1_02",
+          "operation": "draw",
+          "startFrame": 436,
+          "endFrame": 444,
+          "easing": "ease_out_cubic",
+          "order": 4
+        },
+        {
+          "id": "track_1_05",
+          "targetKind": "entity",
+          "targetId": "later_observers",
+          "operation": "focus",
+          "startFrame": 444,
+          "endFrame": 453,
+          "easing": "ease_out_cubic",
+          "order": 5
+        },
+        {
+          "id": "track_1_06",
+          "targetKind": "relation",
+          "targetId": "relation_1_03",
+          "operation": "draw",
+          "startFrame": 453,
+          "endFrame": 477,
+          "easing": "ease_out_cubic",
+          "order": 6
+        },
+        {
+          "id": "track_1_07",
+          "targetKind": "entity",
+          "targetId": "later_observers",
+          "operation": "focus",
+          "startFrame": 477,
+          "endFrame": 501,
+          "easing": "ease_out_cubic",
+          "order": 7
+        }
+      ],
+      "compositionFingerprint": "df8b5623be24d77530ff46471b0d9695b420c8b1432b41682e133138439015ec"
+    },
+    {
+      "id": "visual_scene_02",
+      "entityIds": [
+        "baychimo",
+        "arctic_pack_ice",
+        "company_archive_record"
+      ],
+      "propositionIds": [
+        "baychimo_evidence_without_crew",
+        "baychimo_evidence_pack_ice_drift",
+        "baychimo_turn_latest_record",
+        "baychimo_turn_decades_after_abandonment"
+      ],
+      "layoutIntent": "radial_focus",
+      "focusEntityId": "baychimo",
+      "startFrame": 509,
+      "endFrame": 818,
+      "readabilityHold": {
+        "startFrame": 810,
+        "endFrame": 818
+      },
+      "entities": [
+        {
+          "id": "baychimo",
+          "kind": "steamship",
+          "visualSubjectKind": "vessel",
+          "label": "Baychimo",
+          "persistent": true,
+          "claimIds": [
+            "claim_disappearance",
+            "claim_drift",
+            "claim_last-sighting",
+            "claim_reappearance",
+            "claim_verdict"
+          ]
+        },
+        {
+          "id": "arctic_pack_ice",
+          "kind": "moving_ice_environment",
+          "visualSubjectKind": "environment",
+          "label": "Arctic pack ice",
+          "persistent": true,
+          "claimIds": [
+            "claim_drift"
+          ]
+        },
+        {
+          "id": "company_archive_record",
+          "kind": "archival_record",
+          "visualSubjectKind": "record",
+          "label": "company archive record",
+          "persistent": true,
+          "claimIds": [
+            "claim_last-sighting",
+            "claim_verdict"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "id": "relation_2_00",
+          "propositionId": "baychimo_evidence_pack_ice_drift",
+          "fromEntityId": "baychimo",
+          "toEntityId": "arctic_pack_ice",
+          "predicate": "drifted_with",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 0
+        },
+        {
+          "id": "relation_2_01",
+          "propositionId": "baychimo_turn_latest_record",
+          "fromEntityId": "company_archive_record",
+          "toEntityId": "baychimo",
+          "predicate": "latest_record_dates_to_1969",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 1
+        },
+        {
+          "id": "relation_2_02",
+          "propositionId": "baychimo_turn_decades_after_abandonment",
+          "fromEntityId": "company_archive_record",
+          "toEntityId": "baychimo",
+          "predicate": "occurred_decades_after_ship_was_abandoned",
+          "polarity": "affirmed",
+          "certainty": "verified",
+          "order": 2
+        }
+      ],
+      "events": [
+        {
+          "id": "event_2_00",
+          "propositionId": "baychimo_evidence_without_crew",
+          "beatId": "beat_evidence",
+          "eventKind": "state_transition",
+          "predicate": "had_no_crew_aboard",
+          "semanticOperation": "reveal_empty_crew_state",
+          "subjectEntityId": "baychimo",
+          "objectEntityIds": [],
+          "focusEntityIds": [
+            "baychimo"
+          ],
+          "certainty": "verified",
+          "startFrame": 509,
+          "endFrame": 529,
+          "order": 0
+        },
+        {
+          "id": "event_2_01",
+          "propositionId": "baychimo_evidence_pack_ice_drift",
+          "beatId": "beat_evidence",
+          "eventKind": "coupled_motion",
+          "predicate": "drifted_with",
+          "semanticOperation": "move_ship_with_pack_ice",
+          "subjectEntityId": "baychimo",
+          "objectEntityIds": [
+            "arctic_pack_ice"
+          ],
+          "focusEntityIds": [
+            "baychimo",
+            "arctic_pack_ice"
+          ],
+          "certainty": "verified",
+          "startFrame": 529,
+          "endFrame": 598,
+          "order": 1
+        },
+        {
+          "id": "event_2_02",
+          "propositionId": "baychimo_turn_latest_record",
+          "beatId": "beat_turn",
+          "eventKind": "archival_evidence",
+          "predicate": "latest_record_dates_to_1969",
+          "semanticOperation": "stamp_latest_archive_record",
+          "subjectEntityId": "company_archive_record",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "focusEntityIds": [
+            "company_archive_record",
+            "baychimo"
+          ],
+          "certainty": "verified",
+          "startFrame": 616,
+          "endFrame": 727,
+          "order": 2
+        },
+        {
+          "id": "event_2_03",
+          "propositionId": "baychimo_turn_decades_after_abandonment",
+          "beatId": "beat_turn",
+          "eventKind": "temporal_relation",
+          "predicate": "occurred_decades_after_ship_was_abandoned",
+          "semanticOperation": "span_abandonment_to_latest_record",
+          "subjectEntityId": "company_archive_record",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "focusEntityIds": [
+            "baychimo",
+            "company_archive_record"
+          ],
+          "certainty": "verified",
+          "startFrame": 749,
+          "endFrame": 803,
+          "order": 3
+        }
+      ],
+      "layout": {
+        "profileId": "deterministic_semantic_graph_layout_v2",
+        "profileVersion": "2.0.0",
+        "canvas": {
+          "width": 1080,
+          "height": 1920
+        },
+        "regions": {
+          "visualRoi": {
+            "x": 72,
+            "y": 276,
+            "width": 936,
+            "height": 1068
+          },
+          "captionLane": {
+            "x": 0,
+            "y": 1416,
+            "width": 1080,
+            "height": 504
+          }
+        },
+        "nodes": [
+          {
+            "entityId": "baychimo",
+            "order": 0,
+            "role": "focus",
+            "bounds": {
+              "x": 438,
+              "y": 744,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "arctic_pack_ice",
+            "order": 1,
+            "role": "participant",
+            "bounds": {
+              "x": 438,
+              "y": 414,
+              "width": 204,
+              "height": 132
+            }
+          },
+          {
+            "entityId": "company_archive_record",
+            "order": 2,
+            "role": "participant",
+            "bounds": {
+              "x": 438,
+              "y": 1074,
+              "width": 204,
+              "height": 132
+            }
+          }
+        ],
+        "edges": [
+          {
+            "relationId": "relation_2_00",
+            "fromEntityId": "baychimo",
+            "toEntityId": "arctic_pack_ice",
+            "kind": "line",
+            "points": [
+              {
+                "x": 540,
+                "y": 810
+              },
+              {
+                "x": 540,
+                "y": 480
+              }
+            ]
+          },
+          {
+            "relationId": "relation_2_01",
+            "fromEntityId": "company_archive_record",
+            "toEntityId": "baychimo",
+            "kind": "line",
+            "points": [
+              {
+                "x": 540,
+                "y": 1140
+              },
+              {
+                "x": 540,
+                "y": 810
+              }
+            ]
+          },
+          {
+            "relationId": "relation_2_02",
+            "fromEntityId": "company_archive_record",
+            "toEntityId": "baychimo",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 540,
+                "y": 1140
+              },
+              {
+                "x": 582,
+                "y": 933
+              },
+              {
+                "x": 540,
+                "y": 810
+              }
+            ]
+          }
+        ],
+        "constraints": {
+          "maximumSimultaneousMotion": 2,
+          "minimumSettledHoldFrames": 8
+        }
+      },
+      "tracks": [
+        {
+          "id": "track_2_00",
+          "targetKind": "entity",
+          "targetId": "baychimo",
+          "operation": "empty_occupancy",
+          "startFrame": 509,
+          "endFrame": 529,
+          "easing": "ease_out_cubic",
+          "order": 0
+        },
+        {
+          "id": "track_2_01",
+          "targetKind": "entity",
+          "targetId": "baychimo",
+          "operation": "co_move",
+          "startFrame": 529,
+          "endFrame": 598,
+          "easing": "ease_out_cubic",
+          "order": 1
+        },
+        {
+          "id": "track_2_02",
+          "targetKind": "entity",
+          "targetId": "arctic_pack_ice",
+          "operation": "co_move",
+          "startFrame": 529,
+          "endFrame": 598,
+          "easing": "ease_out_cubic",
+          "order": 2
+        },
+        {
+          "id": "track_2_03",
+          "targetKind": "relation",
+          "targetId": "relation_2_01",
+          "operation": "draw",
+          "startFrame": 616,
+          "endFrame": 727,
+          "easing": "ease_out_cubic",
+          "order": 3
+        },
+        {
+          "id": "track_2_04",
+          "targetKind": "entity",
+          "targetId": "company_archive_record",
+          "operation": "mark_last_known",
+          "startFrame": 616,
+          "endFrame": 727,
+          "easing": "ease_out_cubic",
+          "order": 4
+        },
+        {
+          "id": "track_2_05",
+          "targetKind": "relation",
+          "targetId": "relation_2_02",
+          "operation": "draw",
+          "startFrame": 749,
+          "endFrame": 803,
+          "easing": "ease_out_cubic",
+          "order": 5
+        },
+        {
+          "id": "track_2_06",
+          "targetKind": "entity",
+          "targetId": "baychimo",
+          "operation": "mark_last_known",
+          "startFrame": 749,
+          "endFrame": 803,
+          "easing": "ease_out_cubic",
+          "order": 6
+        }
+      ],
+      "compositionFingerprint": "c0224f3d5839ea6875fa276d5cb0d29f5ee5d77db6977353d5378e7db7b768f4"
+    },
+    {
+      "id": "visual_scene_03",
+      "entityIds": [
+        "company_archive_record",
+        "baychimo",
+        "arctic_pack_ice",
+        "supernatural_ghost_ship_interpretation",
+        "baychimo_final_fate"
+      ],
+      "propositionIds": [
+        "baychimo_payoff_documented_drift",
+        "baychimo_payoff_not_supernatural",
+        "baychimo_payoff_unknown_fate"
+      ],
+      "layoutIntent": "layered_stack",
+      "focusEntityId": "baychimo",
+      "startFrame": 818,
+      "endFrame": 1068,
+      "readabilityHold": {
+        "startFrame": 1060,
+        "endFrame": 1068
+      },
+      "entities": [
+        {
+          "id": "company_archive_record",
+          "kind": "archival_record",
+          "visualSubjectKind": "record",
+          "label": "company archive record",
+          "persistent": true,
+          "claimIds": [
+            "claim_last-sighting",
+            "claim_verdict"
+          ]
+        },
+        {
+          "id": "baychimo",
+          "kind": "steamship",
+          "visualSubjectKind": "vessel",
+          "label": "Baychimo",
+          "persistent": true,
+          "claimIds": [
+            "claim_disappearance",
+            "claim_drift",
+            "claim_last-sighting",
+            "claim_reappearance",
+            "claim_verdict"
+          ]
+        },
+        {
+          "id": "arctic_pack_ice",
+          "kind": "moving_ice_environment",
+          "visualSubjectKind": "environment",
+          "label": "Arctic pack ice",
+          "persistent": true,
+          "claimIds": [
+            "claim_drift"
+          ]
+        },
+        {
+          "id": "supernatural_ghost_ship_interpretation",
+          "kind": "rejected_interpretation",
+          "visualSubjectKind": "hypothesis",
+          "label": "supernatural ghost ship",
+          "persistent": false,
+          "claimIds": [
+            "claim_verdict"
+          ]
+        },
+        {
+          "id": "baychimo_final_fate",
+          "kind": "unknown_outcome",
+          "visualSubjectKind": "unknown_region",
+          "label": "Baychimo's final fate",
+          "persistent": true,
+          "claimIds": [
+            "claim_verdict"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "id": "relation_3_00",
+          "propositionId": "baychimo_payoff_documented_drift",
+          "fromEntityId": "company_archive_record",
+          "toEntityId": "baychimo",
+          "predicate": "documents_extraordinary_drift",
+          "polarity": "affirmed",
+          "certainty": "qualified",
+          "order": 0
+        },
+        {
+          "id": "relation_3_01",
+          "propositionId": "baychimo_payoff_documented_drift",
+          "fromEntityId": "company_archive_record",
+          "toEntityId": "arctic_pack_ice",
+          "predicate": "documents_extraordinary_drift",
+          "polarity": "affirmed",
+          "certainty": "qualified",
+          "order": 1
+        },
+        {
+          "id": "relation_3_02",
+          "propositionId": "baychimo_payoff_not_supernatural",
+          "fromEntityId": "baychimo",
+          "toEntityId": "supernatural_ghost_ship_interpretation",
+          "predicate": "was_a_supernatural_ghost_ship",
+          "polarity": "negated",
+          "certainty": "qualified",
+          "order": 2
+        },
+        {
+          "id": "relation_3_03",
+          "propositionId": "baychimo_payoff_unknown_fate",
+          "fromEntityId": "baychimo_final_fate",
+          "toEntityId": "baychimo",
+          "predicate": "remains_unknown",
+          "polarity": "affirmed",
+          "certainty": "qualified",
+          "order": 3
+        }
+      ],
+      "events": [
+        {
+          "id": "event_3_00",
+          "propositionId": "baychimo_payoff_documented_drift",
+          "beatId": "beat_payoff",
+          "eventKind": "bounded_interpretation",
+          "predicate": "documents_extraordinary_drift",
+          "semanticOperation": "bound_documented_drift_evidence",
+          "subjectEntityId": "company_archive_record",
+          "objectEntityIds": [
+            "baychimo",
+            "arctic_pack_ice"
+          ],
+          "focusEntityIds": [
+            "company_archive_record",
+            "baychimo",
+            "arctic_pack_ice"
+          ],
+          "certainty": "qualified",
+          "startFrame": 818,
+          "endFrame": 899,
+          "order": 0
+        },
+        {
+          "id": "event_3_01",
+          "propositionId": "baychimo_payoff_not_supernatural",
+          "beatId": "beat_payoff",
+          "eventKind": "rejected_interpretation",
+          "predicate": "was_a_supernatural_ghost_ship",
+          "semanticOperation": "reject_supernatural_interpretation",
+          "subjectEntityId": "baychimo",
+          "objectEntityIds": [
+            "supernatural_ghost_ship_interpretation"
+          ],
+          "focusEntityIds": [
+            "baychimo",
+            "supernatural_ghost_ship_interpretation"
+          ],
+          "certainty": "qualified",
+          "startFrame": 910,
+          "endFrame": 959,
+          "order": 1
+        },
+        {
+          "id": "event_3_02",
+          "propositionId": "baychimo_payoff_unknown_fate",
+          "beatId": "beat_payoff",
+          "eventKind": "epistemic_state",
+          "predicate": "remains_unknown",
+          "semanticOperation": "fade_beyond_last_documented_record",
+          "subjectEntityId": "baychimo_final_fate",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "focusEntityIds": [
+            "company_archive_record",
+            "baychimo_final_fate"
+          ],
+          "certainty": "qualified",
+          "startFrame": 973,
+          "endFrame": 1031,
+          "order": 2
+        }
+      ],
+      "layout": {
+        "profileId": "deterministic_semantic_graph_layout_v2",
+        "profileVersion": "2.0.0",
+        "canvas": {
+          "width": 1080,
+          "height": 1920
+        },
+        "regions": {
+          "visualRoi": {
+            "x": 72,
+            "y": 276,
+            "width": 936,
+            "height": 1068
+          },
+          "captionLane": {
+            "x": 0,
+            "y": 1416,
+            "width": 1080,
+            "height": 504
+          }
+        },
+        "nodes": [
+          {
+            "entityId": "company_archive_record",
+            "order": 0,
+            "role": "participant",
+            "bounds": {
+              "x": 98,
+              "y": 914,
+              "width": 124,
+              "height": 104
+            }
+          },
+          {
+            "entityId": "baychimo",
+            "order": 1,
+            "role": "focus",
+            "bounds": {
+              "x": 410,
+              "y": 426,
+              "width": 260,
+              "height": 160
+            }
+          },
+          {
+            "entityId": "arctic_pack_ice",
+            "order": 2,
+            "role": "participant",
+            "bounds": {
+              "x": 351,
+              "y": 914,
+              "width": 124,
+              "height": 104
+            }
+          },
+          {
+            "entityId": "supernatural_ghost_ship_interpretation",
+            "order": 3,
+            "role": "participant",
+            "bounds": {
+              "x": 605,
+              "y": 914,
+              "width": 124,
+              "height": 104
+            }
+          },
+          {
+            "entityId": "baychimo_final_fate",
+            "order": 4,
+            "role": "participant",
+            "bounds": {
+              "x": 858,
+              "y": 914,
+              "width": 124,
+              "height": 104
+            }
+          }
+        ],
+        "edges": [
+          {
+            "relationId": "relation_3_00",
+            "fromEntityId": "company_archive_record",
+            "toEntityId": "baychimo",
+            "kind": "line",
+            "points": [
+              {
+                "x": 160,
+                "y": 966
+              },
+              {
+                "x": 540,
+                "y": 506
+              }
+            ]
+          },
+          {
+            "relationId": "relation_3_01",
+            "fromEntityId": "company_archive_record",
+            "toEntityId": "arctic_pack_ice",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 160,
+                "y": 966
+              },
+              {
+                "x": 251,
+                "y": 1002
+              },
+              {
+                "x": 413,
+                "y": 966
+              }
+            ]
+          },
+          {
+            "relationId": "relation_3_02",
+            "fromEntityId": "baychimo",
+            "toEntityId": "supernatural_ghost_ship_interpretation",
+            "kind": "line",
+            "points": [
+              {
+                "x": 540,
+                "y": 506
+              },
+              {
+                "x": 667,
+                "y": 966
+              }
+            ]
+          },
+          {
+            "relationId": "relation_3_03",
+            "fromEntityId": "baychimo_final_fate",
+            "toEntityId": "baychimo",
+            "kind": "curve",
+            "points": [
+              {
+                "x": 920,
+                "y": 966
+              },
+              {
+                "x": 694,
+                "y": 772
+              },
+              {
+                "x": 540,
+                "y": 506
+              }
+            ]
+          }
+        ],
+        "constraints": {
+          "maximumSimultaneousMotion": 2,
+          "minimumSettledHoldFrames": 8
+        }
+      },
+      "tracks": [
+        {
+          "id": "track_3_00",
+          "targetKind": "relation",
+          "targetId": "relation_3_00",
+          "operation": "draw",
+          "startFrame": 818,
+          "endFrame": 845,
+          "easing": "ease_out_cubic",
+          "order": 0
+        },
+        {
+          "id": "track_3_01",
+          "targetKind": "relation",
+          "targetId": "relation_3_01",
+          "operation": "draw",
+          "startFrame": 845,
+          "endFrame": 872,
+          "easing": "ease_out_cubic",
+          "order": 1
+        },
+        {
+          "id": "track_3_02",
+          "targetKind": "entity",
+          "targetId": "company_archive_record",
+          "operation": "focus",
+          "startFrame": 872,
+          "endFrame": 899,
+          "easing": "ease_out_cubic",
+          "order": 2
+        },
+        {
+          "id": "track_3_03",
+          "targetKind": "relation",
+          "targetId": "relation_3_02",
+          "operation": "draw",
+          "startFrame": 910,
+          "endFrame": 959,
+          "easing": "ease_out_cubic",
+          "order": 3
+        },
+        {
+          "id": "track_3_04",
+          "targetKind": "entity",
+          "targetId": "supernatural_ghost_ship_interpretation",
+          "operation": "reject_hypothesis",
+          "startFrame": 910,
+          "endFrame": 959,
+          "easing": "ease_out_cubic",
+          "order": 4
+        },
+        {
+          "id": "track_3_05",
+          "targetKind": "relation",
+          "targetId": "relation_3_03",
+          "operation": "draw",
+          "startFrame": 973,
+          "endFrame": 1031,
+          "easing": "ease_out_cubic",
+          "order": 5
+        },
+        {
+          "id": "track_3_06",
+          "targetKind": "entity",
+          "targetId": "baychimo_final_fate",
+          "operation": "unresolved_boundary",
+          "startFrame": 973,
+          "endFrame": 1031,
+          "easing": "ease_out_cubic",
+          "order": 6
+        }
+      ],
+      "compositionFingerprint": "570bd4b8f240b3795fefd68197dae2328ab5b505b0e3abc76f77e09b9c82f240"
+    }
+  ],
+  "contentHash": "8ed9a0e3b6e1499c4f8fc8c9d3168e0acde5c7aa3d3933c7f64be1bd2f083347"
+}

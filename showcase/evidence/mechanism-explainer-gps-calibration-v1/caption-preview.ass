@@ -1,0 +1,24 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Narration,Arial,76,&H00FA8BA7,&H00FFFFFF,&H00030303,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,86,86,269,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:02.43,Narration,,0,0,0,,GPS does not send a\Nfull calendar date.
+Dialogue: 0,0:00:02.70,0:00:05.43,Narration,,0,0,0,,Older signals stored that\Nweek number in ten bits.
+Dialogue: 0,0:00:05.73,0:00:08.23,Narration,,0,0,0,,The range ends at 1,023.
+Dialogue: 0,0:00:08.53,0:00:10.63,Narration,,0,0,0,,At the limit, there\Nis no new number left.
+Dialogue: 0,0:00:10.93,0:00:13.40,Narration,,0,0,0,,Zero is sent again when\Nthe next week begins.
+Dialogue: 0,0:00:13.76,0:00:16.56,Narration,,0,0,0,,Old software read zero\Nas the previous cycle.
+Dialogue: 0,0:00:16.86,0:00:18.73,Narration,,0,0,0,,Their displayed date\Njumped backward.
+Dialogue: 0,0:00:19.03,0:00:20.86,Narration,,0,0,0,,Real time kept\Nmoving forward.
+Dialogue: 0,0:00:21.20,0:00:23.76,Narration,,0,0,0,,An update selected\Nthe correct GPS cycle.
+Dialogue: 0,0:00:24.13,0:00:26.20,Narration,,0,0,0,,Now the receiver shows\Nthe correct date.
+Dialogue: 0,0:00:26.50,0:00:28.46,Narration,,0,0,0,,The number repeated.\NTime did not.
