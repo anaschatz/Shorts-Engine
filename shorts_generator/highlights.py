@@ -2237,7 +2237,13 @@ def align_motivational_boundaries(
                     else:
                         continuation_required = True
                         continuation_reasons.append("same_sentence_completion")
-                while not continuation_required and sentence_index + 1 < len(sentence_spans):
+                while (
+                    not continuation_required
+                    and not _coerce_bool(
+                        item.get("second_topic_begins_after_takeaway")
+                    )
+                    and sentence_index + 1 < len(sentence_spans)
+                ):
                     sentence = sentence_spans[sentence_index]
                     next_sentence = sentence_spans[sentence_index + 1]
                     reason = _required_motivational_continuation(sentence, next_sentence)

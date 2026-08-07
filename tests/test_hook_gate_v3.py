@@ -494,6 +494,55 @@ class HookGateV3Tests(unittest.TestCase):
         self.assertEqual(result["firstWordLatencyMs"], 80.0)
         self.assertEqual(result["semantic_closure_status"], "pass")
 
+    def test_alignment_trims_declared_second_topic_instead_of_extending_to_it(self):
+        words = [
+            {"start": 0.0, "end": 0.5, "word": "Everybody"},
+            {"start": 0.5, "end": 1.0, "word": "gets"},
+            {"start": 1.0, "end": 1.5, "word": "a"},
+            {"start": 1.5, "end": 2.0, "word": "break."},
+            {"start": 2.0, "end": 2.5, "word": "Most"},
+            {"start": 2.5, "end": 3.0, "word": "people"},
+            {"start": 3.0, "end": 3.5, "word": "blow"},
+            {"start": 3.5, "end": 4.0, "word": "it."},
+            {"start": 4.0, "end": 4.3, "word": "It's"},
+            {"start": 4.3, "end": 4.6, "word": "an"},
+            {"start": 4.6, "end": 5.0, "word": "awesome"},
+            {"start": 5.0, "end": 5.5, "word": "documentary."},
+        ]
+        transcript = {
+            "duration": 8.0,
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 5.5,
+                    "text": " ".join(word["word"] for word in words),
+                    "words": words,
+                }
+            ],
+        }
+        candidate = {
+            "start_time": 0.0,
+            "end_time": 5.5,
+            "speech_start_time": 0.0,
+            "speech_end_time": 5.5,
+            "hook_sentence": "Everybody gets a break.",
+            "hook_payoff_phrase": "Most people blow it.",
+            "earliest_complete_takeaway_sentence": "Most people blow it.",
+            "final_takeaway_sentence": "Most people blow it.",
+            "second_topic_begins_after_takeaway": True,
+        }
+
+        [result] = align_motivational_boundaries([candidate], transcript)
+
+        self.assertEqual(result["speech_end_time"], 4.0)
+        self.assertFalse(result["semantic_extension_applied"])
+        self.assertFalse(result["second_topic_begins_after_takeaway"])
+        self.assertTrue(result["second_topic_trimmed_after_takeaway"])
+        self.assertEqual(
+            result["semantic_closure_sentence"],
+            "Most people blow it.",
+        )
+
 
 def natural_tail_fixture():
     spoken = [
