@@ -144,6 +144,48 @@ class HookGateV3Tests(unittest.TestCase):
             result["hookGateRejectionReasons"],
         )
 
+    def test_touching_words_outside_half_open_speech_interval_are_excluded(self):
+        candidate = {
+            "title": "Boundaries are self-respect",
+            "topic": "boundaries",
+            "start_time": 10.0,
+            "render_start_time": 10.0,
+            "end_time": 12.0,
+            "speech_start_time": 10.0,
+            "speech_end_time": 12.0,
+            "opening_exact_quote": "Stop accepting disrespect now.",
+            "hook_payoff_phrase": "stop accepting disrespect",
+            "has_complete_ending": True,
+            "has_takeaway": True,
+            "second_topic_begins_after_takeaway": False,
+            "quotability_score": 90,
+        }
+        words = [
+            {"start": 9.7, "end": 10.0, "word": "Earlier."},
+            {"start": 10.0, "end": 10.3, "word": "Stop"},
+            {"start": 10.3, "end": 10.7, "word": "accepting"},
+            {"start": 10.7, "end": 11.3, "word": "disrespect"},
+            {"start": 11.3, "end": 12.0, "word": "now."},
+            {"start": 12.0, "end": 12.3, "word": "Next"},
+        ]
+
+        result = evaluate_hook_gate_v3(
+            candidate,
+            words,
+            selection_settings(BF_FEED_STOP_V1),
+        )
+
+        self.assertEqual(result["firstWordLatencyMs"], 0.0)
+        self.assertNotIn(
+            "hook_v3_opening_not_on_word_boundary",
+            result["hookGateRejectionReasons"],
+        )
+        self.assertNotIn(
+            "hook_v3_render_starts_inside_first_word",
+            result["hookGateRejectionReasons"],
+        )
+        self.assertEqual(result["openingWordCountAtTwoSeconds"], 4)
+
     def test_07_complete_point_with_045s_reaction_passes(self):
         transcript, candidate = natural_tail_fixture()
         result = evaluate_motivational_closure_v1(

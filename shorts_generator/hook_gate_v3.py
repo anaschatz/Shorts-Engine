@@ -266,8 +266,13 @@ def _candidate_words(
             if already_normalized
             else _normalize_words(timed_words)
         )
-        if word["end"] > speech_start - 0.001
-        and word["start"] < speech_end + 0.001
+        # Treat the candidate as the half-open speech interval
+        # [speech_start, speech_end). A word ending exactly at the opening is
+        # the previous word, while a word starting exactly at the ending is
+        # the next sentence. Including either one manufactures false cut-word
+        # failures for correctly aligned source boundaries.
+        if word["end"] > speech_start
+        and word["start"] < speech_end
     ]
 
 
