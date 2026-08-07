@@ -1,7 +1,9 @@
 import copy
 import hashlib
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from shorts_generator.music_router import (
     DEFAULT_MUSIC_CATALOG_PATH,
@@ -12,7 +14,6 @@ from shorts_generator.music_router import (
     MUSIC_ROUTER_DECISION_VERSION,
     MusicRouterError,
     load_music_catalog,
-    resolve_music_asset_path,
     route_music_for_candidate,
     verify_music_catalog,
     verify_music_routing_decision,
@@ -34,7 +35,22 @@ def reseal(value):
 class MusicRouterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.catalog = load_music_catalog()
+        # The licensed MP3s are installed locally and intentionally excluded
+        # from Git. Unit tests validate the sealed catalog without requiring
+        # those private runtime assets to exist in a clean CI checkout.
+        cls.catalog = load_music_catalog(verify_assets=False)
+
+    def catalog_with_fixture_assets(self, repository_root):
+        catalog = copy.deepcopy(self.catalog)
+        root = Path(repository_root)
+        for index, track in enumerate(catalog["tracks"]):
+            payload = f"music-router-fixture-{index}".encode("utf-8")
+            path = root / track["relativePath"]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            track["byteLength"] = len(payload)
+            track["sha256"] = hashlib.sha256(payload).hexdigest()
+        return reseal(catalog)
 
     def route(self, candidate, recent=(), reserved=()):
         return route_music_for_candidate(
@@ -45,19 +61,22 @@ class MusicRouterTests(unittest.TestCase):
             verify_assets=False,
         )
 
-    def test_production_catalog_and_exact_assets_verify(self):
-        catalog = load_music_catalog()
+    def test_production_catalog_metadata_verifies_without_private_assets(self):
+        catalog = load_music_catalog(verify_assets=False)
 
         self.assertEqual(catalog["catalogVersion"], MUSIC_CATALOG_VERSION)
         self.assertEqual(len(catalog["tracks"]), 5)
         for track in catalog["tracks"]:
-            path = resolve_music_asset_path(track)
-            self.assertTrue(path.is_file())
-            self.assertEqual(path.stat().st_size, track["byteLength"])
+            self.assertEqual(len(track["sha256"]), 64)
+            self.assertGreater(track["byteLength"], 0)
             self.assertLess(
                 track["recommendedOffsetSeconds"],
                 track["durationSeconds"],
             )
+
+        with tempfile.TemporaryDirectory() as repository_root:
+            with self.assertRaisesRegex(MusicRouterError, "catalog asset is missing"):
+                load_music_catalog(repository_root=repository_root)
 
     def test_complete_point_and_payoff_override_misleading_opening(self):
         opening_only = {
@@ -170,23 +189,28 @@ class MusicRouterTests(unittest.TestCase):
             )
 
     def test_bad_asset_identity_fails_even_with_fresh_catalog_seal(self):
-        wrong_bytes = copy.deepcopy(self.catalog)
-        wrong_bytes["tracks"][0]["byteLength"] += 1
-        wrong_bytes = reseal(wrong_bytes)
-        with self.assertRaisesRegex(MusicRouterError, "byteLength mismatch"):
-            verify_music_catalog(
-                wrong_bytes,
-                catalog_path=DEFAULT_MUSIC_CATALOG_PATH,
-            )
+        with tempfile.TemporaryDirectory() as repository_root:
+            catalog = self.catalog_with_fixture_assets(repository_root)
 
-        wrong_sha = copy.deepcopy(self.catalog)
-        wrong_sha["tracks"][0]["sha256"] = "0" * 64
-        wrong_sha = reseal(wrong_sha)
-        with self.assertRaisesRegex(MusicRouterError, "sha256 mismatch"):
-            verify_music_catalog(
-                wrong_sha,
-                catalog_path=DEFAULT_MUSIC_CATALOG_PATH,
-            )
+            wrong_bytes = copy.deepcopy(catalog)
+            wrong_bytes["tracks"][0]["byteLength"] += 1
+            wrong_bytes = reseal(wrong_bytes)
+            with self.assertRaisesRegex(MusicRouterError, "byteLength mismatch"):
+                verify_music_catalog(
+                    wrong_bytes,
+                    catalog_path=DEFAULT_MUSIC_CATALOG_PATH,
+                    repository_root=repository_root,
+                )
+
+            wrong_sha = copy.deepcopy(catalog)
+            wrong_sha["tracks"][0]["sha256"] = "0" * 64
+            wrong_sha = reseal(wrong_sha)
+            with self.assertRaisesRegex(MusicRouterError, "sha256 mismatch"):
+                verify_music_catalog(
+                    wrong_sha,
+                    catalog_path=DEFAULT_MUSIC_CATALOG_PATH,
+                    repository_root=repository_root,
+                )
 
     def test_bad_track_schema_and_unsafe_asset_path_fail_closed(self):
         extra_metadata = copy.deepcopy(self.catalog)
